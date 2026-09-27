@@ -1,0 +1,37 @@
+{
+  "name": "极光",
+  "description": "深蓝夜空与极光渐变壁纸，青色强调（适合暗色模式）",
+  "wallpaper": { "image": "wallpaper.svg", "fit": "cover", "dim": 0.15 },
+  "glass": { "material": "acrylic", "opacity": 0.62, "blur": 18 },
+  "accent": { "dark": "#5eead4", "light": "#0f766e" },
+  "colors": {
+    "dark": {
+      "background": "#0c1220",
+      "background-win-alt": "#080d18",
+      "sidebar": "#080d18",
+      "panel": "#101829",
+      "header": "#101829",
+      "tab": "#101829",
+      "tab-active": "#0c1220",
+      "card": "#152036",
+      "input": "#152036",
+      "popover": "#152036",
+      "popover-header": "#101829",
+      "menu": "#152036",
+      "menu-hover": "#1d2b47",
+      "secondary": "#1d2b47",
+      "border": "rgba(150, 190, 255, 0.12)",
+      "border-hover": "rgba(150, 190, 255, 0.2)",
+      "hover": "rgba(150, 190, 255, 0.06)",
+      "selected": "rgba(150, 190, 255, 0.12)",
+      "surface": "rgba(150, 190, 255, 0.05)",
+      "surface-hover": "rgba(150, 190, 255, 0.1)",
+      "foreground": "#d5deef",
+      "foreground-subtle": "color-mix(in oklab, #d5deef 62%, transparent)",
+      "foreground-subtlest": "color-mix(in oklab, #d5deef 32%, transparent)",
+      "accent": "#0e2f3a",
+      "terminal-cursor": "#5eead4"
+    }
+  },
+  "startup": { "animation": "fade" }
+}

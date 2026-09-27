@@ -1,0 +1,36 @@
+{
+  "name": "樱",
+  "description": "柔和樱粉渐变，粉色强调（适合亮色模式）",
+  "wallpaper": { "image": "wallpaper.svg", "fit": "cover", "dim": 0.1 },
+  "glass": { "material": "acrylic", "opacity": 0.68, "blur": 16 },
+  "accent": { "light": "#db2777", "dark": "#f472b6" },
+  "colors": {
+    "light": {
+      "background": "#fff7fa",
+      "background-win-alt": "#fbeef3",
+      "sidebar": "#fbeef3",
+      "panel": "#fffafc",
+      "header": "#fffafc",
+      "tab": "#fbeef3",
+      "tab-active": "#fffafc",
+      "card": "#ffffff",
+      "input": "#ffffff",
+      "popover": "#ffffff",
+      "menu": "#ffffff",
+      "menu-hover": "#fbe4ee",
+      "secondary": "#f8e1ea",
+      "border": "rgba(157, 23, 77, 0.12)",
+      "border-hover": "rgba(157, 23, 77, 0.2)",
+      "hover": "rgba(157, 23, 77, 0.05)",
+      "selected": "rgba(157, 23, 77, 0.09)",
+      "surface": "rgba(157, 23, 77, 0.04)",
+      "surface-hover": "rgba(157, 23, 77, 0.08)",
+      "foreground": "#3b2430",
+      "foreground-subtle": "color-mix(in oklab, #3b2430 65%, transparent)",
+      "foreground-subtlest": "color-mix(in oklab, #3b2430 35%, transparent)",
+      "accent": "#fde7f0",
+      "terminal-cursor": "#db2777"
+    }
+  },
+  "startup": { "animation": "fade" }
+}

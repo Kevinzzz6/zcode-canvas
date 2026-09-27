@@ -1,0 +1,5 @@
+{
+  "name": "Mica",
+  "description": "保留官方配色，改用 Windows 11 Mica 材质（取桌面壁纸色调）",
+  "glass": { "material": "mica", "opacity": 0.5, "blur": 0 }
+}
