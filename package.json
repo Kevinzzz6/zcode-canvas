@@ -1,0 +1,40 @@
+{
+  "name": "zcode-canvas",
+  "version": "0.1.0",
+  "description": "Themes, wallpapers, glass and startup visuals for the official ZCode Desktop release.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "zcode-canvas": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "themes",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "win32"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "zcode",
+    "theme",
+    "wallpaper",
+    "electron"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "electron": "^41.0.3",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
+  }
+}
