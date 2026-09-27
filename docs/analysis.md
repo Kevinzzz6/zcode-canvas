@@ -149,3 +149,30 @@
 
 - **Windows**：首选。安装在用户可写目录时无需管理员。
 - **macOS**：修改 `.app` 内的 asar 会破坏代码签名封印；可能需要 ad-hoc 重签并触发“App 管理”权限提示。建议放到后续阶段。
+
+## 7. 实现阶段的实测结论
+
+以下结论都在官方 3.14.3 的隔离副本上验证过（见 `scripts/sandbox.mjs`）。
+
+### 7.1 `resources/app/` 目录方案不可行
+
+本来想用 `resources/app/` 目录代替修改 asar：官方更新时，卸载器只删除 `.zcode-install-manifest` 里列出的文件，这个目录能保留下来。但 Electron 41 的加载顺序是 `app.asar` 优先，然后才是 `app`（`shell/common/node_bindings.cc`：`{"app.asar", "app", "default_app.asar"}`），只有 `app.asar` 不存在时才会加载 `app/`。所以最后还是修改 asar。
+
+### 7.2 asar 补丁
+
+- 头部 JSON 用 `JSON.stringify(JSON.parse(raw))` 重新序列化后和原文逐字节一致。所以还原时只要写回原头部、截掉追加的字节，得到的文件就和原版完全相同（SHA-256 已比对）。
+- exe 里内嵌的 asar 完整性哈希和实际头部对不上：官方 afterPack 在计算哈希之后又改了 asar。所以不能拿它判断 asar 是否纯净，改用补丁自带的 `restore.json` 做标记。
+- 327MB 的 asar 打补丁连同校验约 0.6 秒，不需要解包。
+- ZCode 运行时 `app.asar` 被锁住，无法改名替换。这时补丁先存成 `app.asar.canvas-pending`，再由一个独立进程等 ZCode 退出后自动换上。
+  - 从 ZCode 自带终端派生的进程所在的 Job 对象限制位是 `0x1800`（允许脱离、没有“关闭即杀”），所以这个等待进程能活过 ZCode 退出。
+  - 等待期间如果 ZCode 被更新，`app.asar` 的大小或修改时间会变，等待进程发现后放弃替换，避免把旧版本换回去。
+
+### 7.3 运行时
+
+- ESM 入口里用顶层 `await import()` 导入官方入口，Electron 会等它执行完才触发 `ready`（Electron ESM 文档）。所以官方入口依然在 `ready` 之前运行，原有时序不变。
+- 故意让运行时一加载就抛异常，ZCode 仍能正常启动。
+- `session.registerPreloadScript` + `webFrame.insertCSS` 在首帧前生效，启动画面能被覆盖。
+- ZCode 要到首帧之后才给 `<html>` 加主题 class，所以启动画面阶段不知道当前是亮色还是暗色。壁纸遮罩因此在 `body.zcode-startup-ready` 之前保持隐藏，界面淡入时再显示。
+- 热更新：修改配置约 1 秒后生效（150ms 防抖）。
+- 毛玻璃：半透明 token 的原值在 `body` 上捕获、在 `#root` 上重新声明，避免自定义属性引用自己。弹出层挂在 `#root` 外面，保持不透明。
+- ZCode 会通过 `useDesktopNativeThemeSync` 把应用主题同步到 `nativeTheme`，所以 Mica 材质的深浅会跟着 ZCode 的亮色 / 暗色走，Canvas 不需要处理。
