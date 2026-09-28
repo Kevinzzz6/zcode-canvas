@@ -53,7 +53,23 @@ export interface PanelInput {
   fit?: unknown;
   blur?: unknown;
   dim?: unknown;
+  scale?: unknown;
+  saturate?: unknown;
+  brightness?: unknown;
+  contrast?: unknown;
+  grayscale?: unknown;
 }
+
+/** Numeric wallpaper knobs and the ranges the panel may set them to. */
+const WALLPAPER_NUMBERS = {
+  blur: [0, 200],
+  dim: [0, 1],
+  scale: [0.1, 4],
+  saturate: [0, 4],
+  brightness: [0, 2],
+  contrast: [0, 2],
+  grayscale: [0, 1],
+} as const;
 
 /**
  * Apply one panel request to the config. Only the fields present in the request change: picking a
@@ -72,21 +88,21 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
     if (input.wallpaper === null) next.wallpaper = null;
     else throw new Error("wallpaper must be picked with the file dialog");
   }
-  if (input.fit !== undefined || input.blur !== undefined || input.dim !== undefined) {
+  const request = input as Record<string, unknown>;
+  const numberKeys = Object.keys(WALLPAPER_NUMBERS) as Array<keyof typeof WALLPAPER_NUMBERS>;
+  if (input.fit !== undefined || numberKeys.some((key) => request[key] !== undefined)) {
     const wallpaper = { ...(next.wallpaper ?? {}) };
     if (input.fit !== undefined) {
       if (typeof input.fit !== "string" || !WALLPAPER_FITS.includes(input.fit as WallpaperFit)) throw new Error("invalid wallpaper fit");
       wallpaper.fit = input.fit as WallpaperFit;
     }
-    if (input.blur !== undefined) {
-      const n = Number(input.blur);
-      if (!Number.isFinite(n) || n < 0 || n > 200) throw new Error("invalid wallpaper blur");
-      wallpaper.blur = n;
-    }
-    if (input.dim !== undefined) {
-      const n = Number(input.dim);
-      if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error("invalid wallpaper dim");
-      wallpaper.dim = n;
+    for (const key of numberKeys) {
+      const raw = request[key];
+      if (raw === undefined) continue;
+      const [min, max] = WALLPAPER_NUMBERS[key];
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < min || n > max) throw new Error(`invalid wallpaper ${key}`);
+      (wallpaper as Record<string, unknown>)[key] = n;
     }
     next.wallpaper = wallpaper;
   }

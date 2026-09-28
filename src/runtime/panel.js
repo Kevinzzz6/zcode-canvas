@@ -2,13 +2,26 @@ const api = window.zcodeCanvas;
 const $ = (id) => document.getElementById(id);
 const theme = $("theme");
 const fit = $("fit");
-const blur = $("blur");
-const dim = $("dim");
 const file = $("file");
 const status = $("status");
 
+// Each slider in percent (blur is px): config ↔ slider value ↔ live label.
+const KNOBS = {
+  blur: { to: (v) => v, from: (c) => c ?? 0, fmt: (v) => `${v}px` },
+  dim: { to: (v) => v / 100, from: (c) => Math.round((c ?? 0.35) * 100), fmt: (v) => `${v}%` },
+  scale: { to: (v) => v / 100, from: (c) => Math.round((c ?? 1) * 100), fmt: (v) => `${v}%` },
+  saturate: { to: (v) => v / 100, from: (c) => Math.round((c ?? 1) * 100), fmt: (v) => `${v}%` },
+  brightness: { to: (v) => v / 100, from: (c) => Math.round((c ?? 1) * 100), fmt: (v) => `${v}%` },
+  contrast: { to: (v) => v / 100, from: (c) => Math.round((c ?? 1) * 100), fmt: (v) => `${v}%` },
+  grayscale: { to: (v) => v / 100, from: (c) => Math.round((c ?? 0) * 100), fmt: (v) => `${v}%` },
+};
+
 function say(message) {
   status.textContent = message;
+}
+
+function showKnob(key, value) {
+  $(`${key}-val`).textContent = KNOBS[key].fmt(Number(value));
 }
 
 async function refresh() {
@@ -27,8 +40,11 @@ async function refresh() {
   theme.value = data.config.theme ?? "";
   const wallpaper = data.config.wallpaper ?? {};
   fit.value = wallpaper.fit ?? "cover";
-  blur.value = wallpaper.blur ?? 0;
-  dim.value = wallpaper.dim ?? 0.35;
+  for (const key of Object.keys(KNOBS)) {
+    const slider = $(key);
+    slider.value = KNOBS[key].from(wallpaper[key]);
+    showKnob(key, slider.value);
+  }
   file.textContent = data.wallpaper.file
     ? `当前文件：${data.wallpaper.file}`
     : data.wallpaper.fromTheme
@@ -72,6 +88,12 @@ if (!api) {
   $("reset").addEventListener("click", () => apply({ theme: null, wallpaper: null }, "已恢复默认外观"));
 
   fit.addEventListener("change", () => apply({ fit: fit.value }, "已更新铺放方式"));
-  blur.addEventListener("change", () => apply({ blur: Number(blur.value) }, "已更新模糊"));
-  dim.addEventListener("change", () => apply({ dim: Number(dim.value) }, "已更新压暗"));
+  for (const [key, knob] of Object.entries(KNOBS)) {
+    const slider = $(key);
+    slider.addEventListener("input", () => showKnob(key, slider.value));
+    slider.addEventListener("change", () => apply({ [key]: knob.to(Number(slider.value)) }, "已更新"));
+  }
+  $("tune-reset").addEventListener("click", () =>
+    apply({ fit: "cover", blur: 0, dim: 0.35, scale: 1, saturate: 1, brightness: 1, contrast: 1, grayscale: 0 }, "已重置壁纸调整"),
+  );
 }

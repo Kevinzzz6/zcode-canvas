@@ -12,7 +12,7 @@ export const WALLPAPER_FITS: readonly WallpaperFit[] = ["cover", "contain", "fil
 export const STARTUP_ANIMATIONS: readonly StartupAnimation[] = ["pop", "fade", "none"];
 
 export interface WallpaperSpec {
-  /** Image file (png/jpg/webp/avif/gif). Relative paths resolve against the theme or canvas home. */
+  /** Image file (png/jpg/webp/avif/gif/svg). Relative paths resolve against the theme or canvas home. */
   image?: string | null;
   fit?: WallpaperFit;
   /** CSS background-position, e.g. "center", "right bottom", "30% 50%". */
@@ -23,6 +23,13 @@ export interface WallpaperSpec {
   dim?: number;
   /** Overlay color. Defaults to black in dark mode and white in light mode. */
   overlay?: string | null;
+  /** Zoom of the painted wallpaper around `position`, 1 = the fit as-is. */
+  scale?: number;
+  /** Color filters, 1 = unfiltered; grayscale is 0..1. */
+  saturate?: number;
+  brightness?: number;
+  contrast?: number;
+  grayscale?: number;
 }
 
 export interface GlassSpec {
@@ -119,6 +126,11 @@ export interface ResolvedWallpaper {
   blur: number;
   dim: number;
   overlay: string | null;
+  scale: number;
+  saturate: number;
+  brightness: number;
+  contrast: number;
+  grayscale: number;
 }
 
 export interface ResolvedStartup {
@@ -279,6 +291,11 @@ function resolveWallpaper(spec: WallpaperSpec | null): ResolvedWallpaper | null 
     blur: clamp(spec.blur, 0, 200, 0),
     dim: clamp(spec.dim, 0, 1, 0.35),
     overlay: spec.overlay ?? null,
+    scale: clamp(spec.scale, 0.1, 4, 1),
+    saturate: clamp(spec.saturate, 0, 4, 1),
+    brightness: clamp(spec.brightness, 0, 2, 1),
+    contrast: clamp(spec.contrast, 0, 2, 1),
+    grayscale: clamp(spec.grayscale, 0, 1, 0),
   };
 }
 

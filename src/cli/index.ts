@@ -87,10 +87,15 @@ function helpText(): string {
   vars.<--属性>               其他 CSS 自定义属性（也可 vars.dark.<--属性> / vars.light.<--属性>）
   wallpaper.image             图片路径 (png/jpg/webp/avif/gif/svg)
   wallpaper.fit               ${WALLPAPER_FITS.join(" | ")}
-  wallpaper.position          CSS background-position，如 "right bottom"
+  wallpaper.position          CSS background-position，如 "right bottom"（也是缩放锚点）
   wallpaper.blur              壁纸模糊 px
   wallpaper.dim               遮罩强度 0~1
   wallpaper.overlay           遮罩颜色（默认暗色黑 / 亮色白）
+  wallpaper.scale             缩放倍数 0.1~4（1 = 原样），以 position 为锚点
+  wallpaper.saturate          饱和度 0~4，1 = 不调整
+  wallpaper.brightness        亮度 0~2，1 = 不调整
+  wallpaper.contrast          对比度 0~2，1 = 不调整
+  wallpaper.grayscale         灰度 0~1，0 = 彩色
   wallpaper.dark.<项>         只对暗色生效的壁纸设置，如 wallpaper.dark.image；亮色同理
   glass.material              ${MATERIALS.join(" | ")}（Windows 窗口材质；macOS 映射为原生
                              毛玻璃，none 关闭；Linux 忽略此项，透明度由窗口本身决定）
@@ -133,7 +138,7 @@ function writeConfig(config: CanvasConfig) {
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|updateRescue|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
+const ALLOWED_KEY = /^(enabled|theme|updateRescue|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
 const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|startup)$/;
 
 function parseValue(key: string, raw: string): unknown {

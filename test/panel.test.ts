@@ -94,12 +94,36 @@ test("clearing the wallpaper lets the theme's wallpaper show again, theme untouc
 test("fit / blur / dim update in place and keep wallpaper.image", () => {
   const home = makeHome();
   const before: CanvasConfig = { theme: "mine", wallpaper: { image: "/w/pic.jpg", fit: "cover" } };
-  const after = applyPanelInput(before, { fit: "contain", blur: 12, dim: 0.6 }, home);
+  const after = applyPanelInput(
+    before,
+    { fit: "contain", blur: 12, dim: 0.6, scale: 1.5, saturate: 0.5, brightness: 1.2, contrast: 0.9, grayscale: 1 },
+    home,
+  );
   assert.equal(after.wallpaper?.image, "/w/pic.jpg");
   assert.equal(after.wallpaper?.fit, "contain");
   assert.equal(after.wallpaper?.blur, 12);
   assert.equal(after.wallpaper?.dim, 0.6);
-  for (const bad of [{ fit: "stretch" }, { blur: -1 }, { blur: 201 }, { blur: "lots" }, { dim: 1.5 }, { dim: -0.1 }] as const) {
+  assert.equal(after.wallpaper?.scale, 1.5);
+  assert.equal(after.wallpaper?.saturate, 0.5);
+  assert.equal(after.wallpaper?.brightness, 1.2);
+  assert.equal(after.wallpaper?.contrast, 0.9);
+  assert.equal(after.wallpaper?.grayscale, 1);
+  for (
+    const bad of [
+      { fit: "stretch" },
+      { blur: -1 },
+      { blur: 201 },
+      { blur: "lots" },
+      { dim: 1.5 },
+      { dim: -0.1 },
+      { scale: 0.05 },
+      { scale: 5 },
+      { saturate: -1 },
+      { brightness: 3 },
+      { contrast: 9 },
+      { grayscale: 2 },
+    ] as const
+  ) {
     assert.throws(() => applyPanelInput(before, bad, home), Error, JSON.stringify(bad));
   }
 });

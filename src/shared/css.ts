@@ -275,13 +275,24 @@ function wallpaperRules(
   const size = { cover: "cover", contain: "contain", fill: "100% 100%", tile: "auto", center: "auto" }[wallpaper.fit];
   const repeat = wallpaper.fit === "tile" ? "repeat" : "no-repeat";
   const bleed = wallpaper.blur ? `${-wallpaper.blur * 2}px` : "0";
+  const n = (value: number) => Math.round(value * 1000) / 1000;
+  // Zoom is a transform anchored at the focal position, so the subject stays put while scaling —
+  // and it composes with every fit, including tile. Filters ride along on the same layer.
+  const filters = [
+    wallpaper.blur ? `blur(${wallpaper.blur}px)` : "",
+    wallpaper.saturate !== 1 ? `saturate(${n(wallpaper.saturate)})` : "",
+    wallpaper.brightness !== 1 ? `brightness(${n(wallpaper.brightness)})` : "",
+    wallpaper.contrast !== 1 ? `contrast(${n(wallpaper.contrast)})` : "",
+    wallpaper.grayscale > 0 ? `grayscale(${n(wallpaper.grayscale)})` : "",
+  ].filter(Boolean);
   const layer = ["content: \"\"", "position: fixed", "z-index: -1", "pointer-events: none"];
   rules.push(
     block(`${root} body::before`, [
       ...layer,
       `inset: ${bleed}`,
       `background: ${url} ${wallpaper.position} / ${size} ${repeat}`,
-      ...(wallpaper.blur ? [`filter: blur(${wallpaper.blur}px)`] : []),
+      ...(wallpaper.scale !== 1 ? [`transform: scale(${n(wallpaper.scale)})`, `transform-origin: ${wallpaper.position}`] : []),
+      ...(filters.length ? [`filter: ${filters.join(" ")}`] : []),
     ]),
   );
   if (wallpaper.fit === "contain" || wallpaper.fit === "center") {

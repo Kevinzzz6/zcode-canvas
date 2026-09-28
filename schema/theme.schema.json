@@ -133,7 +133,12 @@
         "position": { "$ref": "#/$defs/positionValue" },
         "blur": { "type": "number", "minimum": 0, "maximum": 200 },
         "dim": { "type": "number", "minimum": 0, "maximum": 1 },
-        "overlay": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/colorValue" }] }
+        "overlay": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/colorValue" }] },
+        "scale": { "type": "number", "minimum": 0.1, "maximum": 4, "description": "Zoom around position, 1 = the fit as-is." },
+        "saturate": { "type": "number", "minimum": 0, "maximum": 4, "description": "1 = unfiltered." },
+        "brightness": { "type": "number", "minimum": 0, "maximum": 2, "description": "1 = unfiltered." },
+        "contrast": { "type": "number", "minimum": 0, "maximum": 2, "description": "1 = unfiltered." },
+        "grayscale": { "type": "number", "minimum": 0, "maximum": 1, "description": "0 = color, 1 = fully gray." }
       }
     },
     "wallpaper": {

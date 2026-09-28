@@ -84,7 +84,7 @@ function panelPreloadPath(): string {
 }
 function openPanel() {
   if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
-  panel = new BrowserWindow({ width: 640, height: 620, minWidth: 520, minHeight: 480, title: "ZCode Canvas 外观中心", webPreferences: { preload: panelPreloadPath(), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  panel = new BrowserWindow({ width: 640, height: 700, minWidth: 520, minHeight: 480, title: "ZCode Canvas 外观中心", webPreferences: { preload: panelPreloadPath(), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   panel.loadFile(panelPath("panel.html"));
   panel.on("closed", () => { panel = null; });
 }

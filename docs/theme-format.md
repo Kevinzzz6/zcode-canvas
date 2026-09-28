@@ -91,10 +91,15 @@ my-theme/
   // 写 "light": null 表示亮色模式不要壁纸。
   "wallpaper": {
     "fit": "cover",             // cover | contain | fill | tile | center
-    "position": "center",       // CSS background-position
+    "position": "center",       // CSS background-position，也是缩放的锚点
     "blur": 0,                  // 壁纸模糊半径，px
     "dim": 0.35,                // 遮罩强度 0~1
     "overlay": null,            // 遮罩颜色，默认暗色模式为黑、亮色模式为白
+    "scale": 1,                 // 缩放倍数 0.1~4，以 position 为锚点，1 = 原样
+    "saturate": 1,              // 饱和度 0~4，1 = 不调整
+    "brightness": 1,            // 亮度 0~2，1 = 不调整
+    "contrast": 1,              // 对比度 0~2，1 = 不调整
+    "grayscale": 0,             // 灰度 0~1，0 = 彩色
     "dark":  { "image": "wallpaper-dark.jpg" },
     "light": { "image": "wallpaper-light.jpg", "dim": 0.15 }
   },

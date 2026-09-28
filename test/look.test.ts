@@ -32,6 +32,45 @@ test("numbers are clamped and enums fall back to defaults", () => {
   assert.equal(look.startup.animation, "pop");
 });
 
+test("wallpaper scale and color filters clamp to their ranges and default to neutral", () => {
+  const home = mkdtempSync(join(tmpdir(), "zc-home-"));
+  const tuned = resolveLook(
+    { wallpaper: { image: "a.png", scale: 9, saturate: -1, brightness: 0.5, contrast: 3, grayscale: 2 } },
+    null,
+    home,
+  ).wallpaper.dark!;
+  assert.equal(tuned.scale, 4);
+  assert.equal(tuned.saturate, 0);
+  assert.equal(tuned.brightness, 0.5);
+  assert.equal(tuned.contrast, 2);
+  assert.equal(tuned.grayscale, 1);
+  const neutral = resolveLook({ wallpaper: { image: "a.png" } }, null, home).wallpaper.light!;
+  assert.equal(neutral.scale, 1);
+  assert.equal(neutral.saturate, 1);
+  assert.equal(neutral.brightness, 1);
+  assert.equal(neutral.contrast, 1);
+  assert.equal(neutral.grayscale, 0);
+  // schema/theme.schema.json mirrors the same ranges.
+  const schema = JSON.parse(readFileSync(fileURLToPath(new URL("../schema/theme.schema.json", import.meta.url)), "utf8")) as object;
+  const validate = new Ajv2020({ allErrors: true }).compile(schema);
+  assert.ok(validate({ format: 1, name: "T", wallpaper: { image: "a.png", scale: 1.2, saturate: 2, brightness: 0.8, contrast: 1.1, grayscale: 0.5 } }));
+  assert.ok(!validate({ format: 1, name: "T", wallpaper: { scale: 9 } }), "schema rejects out-of-range scale");
+});
+
+test("wallpaper scale zooms around the focal position; filters chain with blur", () => {
+  const home = mkdtempSync(join(tmpdir(), "zc-home-"));
+  writeFileSync(join(home, "a.png"), "x");
+  const { css } = buildCss(
+    resolveLook({ wallpaper: { image: "a.png", position: "50% 25%", scale: 1.5, blur: 8, saturate: 0.6, grayscale: 1 } }, null, home),
+  );
+  assert.match(css, /transform: scale\(1\.5\)/);
+  assert.match(css, /transform-origin: 50% 25%/);
+  assert.match(css, /filter: blur\(8px\) saturate\(0\.6\) grayscale\(1\)/);
+  // Neutral values emit nothing, keeping the sheet minimal for everyone who does not tune.
+  const plain = buildCss(resolveLook({ wallpaper: { image: "a.png" } }, null, home)).css;
+  assert.doesNotMatch(plain, /transform:|filter:/);
+});
+
 test("an untouched look produces no CSS", () => {
   assert.equal(buildCss(resolveLook({}, null, "/home")).css, "");
 });
