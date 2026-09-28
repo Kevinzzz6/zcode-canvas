@@ -105,23 +105,132 @@ function alphaFor(tier: Tier, opacity: number): number {
   return Math.round(alpha * 1000) / 10;
 }
 
-/** Best-effort readable foreground for a hex/rgb accent; other syntaxes fall back to white. */
-export function contrastForeground(color: string): string {
-  let rgb: number[] | null = null;
-  const hex = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-  if (hex?.[1]) {
-    const h = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join("") : hex[1];
-    rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-  } else {
-    const fn = color.match(/^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i);
-    if (fn) rgb = fn.slice(1, 4).map(Number);
+function srgbToLinear(c: number): number {
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+
+/** Arguments of a CSS color function: "rgb(1 2 3 / 0.5)" and "rgb(1,2,3,0.5)" both → 4 parts. */
+function callArgs(color: string, fn: string): string[] | null {
+  const match = color.match(new RegExp(`^${fn}\\(([^)]*)\\)$`, "i"));
+  if (!match) return null;
+  // The slash form puts the alpha after "/", the comma form keeps it as a 4th argument; callers
+  // read the first three parts either way.
+  return match[1]!.split("/")[0]!.trim().split(/[\s,]+/).filter(Boolean);
+}
+
+const numberOrPercent = (part: string, percentScale: number): number | null => {
+  const match = part.match(/^([+-]?\d*\.?\d+)(%)?$/);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isFinite(value) ? (match[2] ? value * percentScale : value) : null;
+};
+
+/** Hue in turns; accepts bare numbers, deg, grad, rad and turn. */
+function hueInTurns(part: string): number | null {
+  const match = part.match(/^([+-]?\d*\.?\d+)(deg|grad|rad|turn)?$/i);
+  if (!match) return null;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  switch (match[2]?.toLowerCase()) {
+    case "grad":
+      return value / 400;
+    case "rad":
+      return value / (2 * Math.PI);
+    case "turn":
+      return value;
+    default:
+      return value / 360;
   }
-  if (!rgb) return "#ffffff";
-  const [r = 0, g = 0, b = 0] = rgb.map((v) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? "#000000" : "#ffffff";
+}
+
+/** Lightness argument of oklch()/oklab(): 0..1 as a number, 0..100 as a percentage. */
+function okLightness(part: string): number | null {
+  return numberOrPercent(part, 0.01);
+}
+
+/** The color as linear sRGB channels (0..1), or null for syntaxes this cannot resolve. */
+function accentLinear(color: string): [number, number, number] | null {
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+  const hex = color.match(/^#([0-9a-f]+)$/i);
+  if (hex) {
+    const digits = hex[1]!;
+    const pairs =
+      digits.length === 3 || digits.length === 4
+        ? [...digits.slice(0, 3)].map((c) => c + c)
+        : digits.length === 6 || digits.length === 8
+          ? [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 6)]
+          : null;
+    if (!pairs) return null;
+    return pairs.map((p) => srgbToLinear(parseInt(p, 16) / 255)) as [number, number, number];
+  }
+  const rgbArgs = callArgs(color, "rgba?");
+  if (rgbArgs && rgbArgs.length >= 3) {
+    // rgb() channels are 0..255 as numbers or 0..100 as percentages.
+    const channel = (part: string): number | null => {
+      const match = part.match(/^([+-]?\d*\.?\d+)(%)?$/);
+      if (!match || !Number.isFinite(Number(match[1]))) return null;
+      return match[2] ? Number(match[1]) / 100 : Number(match[1]) / 255;
+    };
+    const channels = rgbArgs.slice(0, 3).map(channel);
+    if (channels.every((c): c is number => c != null))
+      return channels.map((c) => srgbToLinear(clamp01(c))) as [number, number, number];
+  }
+  const hslArgs = callArgs(color, "hsla?");
+  if (hslArgs && hslArgs.length >= 3) {
+    const hue = hueInTurns(hslArgs[0]!);
+    const saturation = numberOrPercent(hslArgs[1]!, 0.01);
+    const lightness = numberOrPercent(hslArgs[2]!, 0.01);
+    if (hue == null || saturation == null || lightness == null) return null;
+    const h = hue * 360;
+    const channel = (n: number) => {
+      const k = (((h / 30 + n) % 12) + 12) % 12;
+      return clamp01(lightness - saturation * Math.min(lightness, 1 - lightness) * Math.max(-1, Math.min(k - 3, 9 - k, 1)));
+    };
+    // CSS Color 4 evaluates the channel function at n = 0 (red), 8 (green), 4 (blue).
+    return [0, 8, 4].map((n) => srgbToLinear(channel(n))) as [number, number, number];
+  }
+  const oklab = (lightness: number, a: number, b: number): [number, number, number] => {
+    // Björn Ottosson's OKLab → linear sRGB; clamped like a browser clamps out-of-gamut colors.
+    const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
+    return [
+      clamp01(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+      clamp01(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+      clamp01(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+    ];
+  };
+  const oklabArgs = callArgs(color, "oklab");
+  if (oklabArgs && oklabArgs.length >= 3) {
+    const lightness = okLightness(oklabArgs[0]!);
+    const a = numberOrPercent(oklabArgs[1]!, 0.004);
+    const b = numberOrPercent(oklabArgs[2]!, 0.004);
+    if (lightness == null || a == null || b == null) return null;
+    return oklab(lightness, a, b);
+  }
+  const oklchArgs = callArgs(color, "oklch");
+  if (oklchArgs && oklchArgs.length >= 3) {
+    const lightness = okLightness(oklchArgs[0]!);
+    // Chroma in % is relative to the reference range 0..0.4.
+    const chroma = numberOrPercent(oklchArgs[1]!, 0.004);
+    const hue = hueInTurns(oklchArgs[2]!);
+    if (lightness == null || chroma == null || hue == null) return null;
+    const angle = hue * 2 * Math.PI;
+    return oklab(lightness, chroma * Math.cos(angle), chroma * Math.sin(angle));
+  }
+  return null;
+}
+
+/**
+ * Best-effort readable foreground for an accent: black or white, whichever WCAG contrast is higher
+ * (the crossover is L = √0.0525 − 0.05 ≈ 0.179). hex, rgb(), hsl(), oklch() and oklab() resolve;
+ * syntaxes that cannot be computed statically (lab(), color-mix(), light-dark(), …) fall back to
+ * white, which suits the saturated mid/dark accents such values usually describe.
+ */
+export function contrastForeground(color: string): string {
+  const linear = accentLinear(color.trim());
+  if (!linear) return "#ffffff";
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2] > 0.179 ? "#000000" : "#ffffff";
 }
 
 const MODE_SELECTOR: Record<Mode, string> = {

@@ -90,7 +90,25 @@ test("contrast foreground picks black on light accents and white on dark ones", 
   assert.equal(contrastForeground("#fde047"), "#000000");
   assert.equal(contrastForeground("#1e3a8a"), "#ffffff");
   assert.equal(contrastForeground("rgb(250, 250, 250)"), "#000000");
-  assert.equal(contrastForeground("hsl(10 50% 50%)"), "#ffffff");
+  assert.equal(contrastForeground("hsl(10 50% 30%)"), "#ffffff");
+  // Mid tones: black contrasts more from L ≈ 0.179 up, so they must not fall back to white.
+  assert.equal(contrastForeground("#808080"), "#000000");
+  assert.equal(contrastForeground("#7c5cff"), "#000000");
+});
+
+test("contrast foreground resolves modern color syntaxes instead of defaulting to white", () => {
+  assert.equal(contrastForeground("rgb(100% 100% 100%)"), "#000000");
+  assert.equal(contrastForeground("rgb(0 0 0 / 40%)"), "#ffffff");
+  assert.equal(contrastForeground("rgba(30, 58, 138, 0.9)"), "#ffffff");
+  assert.equal(contrastForeground("hsl(10, 50%, 50%)"), "#000000"); // L 0.1797, a hair past the crossover
+  assert.equal(contrastForeground("hsl(10 50% 90%)"), "#000000");
+  // oklch: a pale blue accent and a deep violet accent.
+  assert.equal(contrastForeground("oklch(96% 0.03 255)"), "#000000");
+  assert.equal(contrastForeground("oklch(0.37 0.13 265)"), "#ffffff");
+  assert.equal(contrastForeground("oklab(95% 0 0)"), "#000000");
+  // Syntaxes that cannot be resolved statically keep the documented white fallback.
+  assert.equal(contrastForeground("color-mix(in oklab, #fff 60%, transparent)"), "#ffffff");
+  assert.equal(contrastForeground("lab(52% 40 59)"), "#ffffff");
 });
 
 test("wallpaper and startup logo become file URLs; overlay waits for startup-ready", () => {
