@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json",
+  "title": "ZCode Canvas theme",
+  "description": "theme.json, format 1. See docs/theme-format.md.",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1, "description": "theme.json format version. Omitted means 1." },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "author": { "type": "string" },
+    "version": { "type": "string", "description": "Version of the theme itself." },
+    "license": { "type": "string", "description": "SPDX license id, e.g. MIT." },
+    "source": { "type": "string", "description": "Where the theme or the work it adapts comes from." },
+    "modes": {
+      "type": "array",
+      "description": "Modes the theme is designed for. Omitted means both.",
+      "items": { "$ref": "#/$defs/mode" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "colors": {
+      "type": "object",
+      "description": "ZCode color tokens per mode: \"sidebar\" or \"--color-sidebar\".",
+      "additionalProperties": false,
+      "properties": {
+        "dark": { "$ref": "#/$defs/colorTokens" },
+        "light": { "$ref": "#/$defs/colorTokens" }
+      }
+    },
+    "accent": {
+      "description": "Fills primary / brand / ring / primary-foreground wherever colors leaves them unset.",
+      "oneOf": [
+        { "$ref": "#/$defs/cssValue" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "dark": { "$ref": "#/$defs/cssValue" }, "light": { "$ref": "#/$defs/cssValue" } }
+        }
+      ]
+    },
+    "radius": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Corner radius scale: 1 = official, 0 = square. rounded-full shapes stay round."
+    },
+    "vars": {
+      "type": "object",
+      "description": "Other CSS custom properties for both modes, optionally refined under dark / light.",
+      "properties": {
+        "dark": { "$ref": "#/$defs/customProperties" },
+        "light": { "$ref": "#/$defs/customProperties" }
+      },
+      "patternProperties": { "^--[\\w-]+$": { "$ref": "#/$defs/cssValue" } },
+      "additionalProperties": false
+    },
+    "wallpaper": {
+      "description": "Shared wallpaper settings, optionally refined under dark / light. null removes it.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "allOf": [{ "$ref": "#/$defs/wallpaperFields" }],
+          "type": "object",
+          "properties": {
+            "dark": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/wallpaper" }] },
+            "light": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/wallpaper" }] }
+          },
+          "unevaluatedProperties": false
+        }
+      ]
+    },
+    "glass": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "material": { "enum": ["acrylic", "mica", "tabbed", "none"], "description": "Native window material." },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1, "description": "1 = official opaque surfaces." },
+        "blur": { "type": "number", "minimum": 0, "maximum": 100, "description": "Backdrop blur of content surfaces, px." }
+      }
+    },
+    "startup": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cssValue" }] },
+        "logo": { "oneOf": [{ "type": "null" }, { "type": "string" }], "description": "Image replacing the ZCode logo tile." },
+        "logoSize": { "type": "number", "minimum": 16, "maximum": 512 },
+        "animation": { "enum": ["pop", "fade", "none"] }
+      }
+    }
+  },
+  "$defs": {
+    "mode": { "enum": ["dark", "light"] },
+    "cssValue": {
+      "type": "string",
+      "not": { "pattern": "[;{}<>\\n\\r]|[uU][rR][lL]\\s*\\(|@[iI][mM][pP][oO][rR][tT]|[eE][xX][pP][rR][eE][sS][sS][iI][oO][nN]\\s*\\(" }
+    },
+    "colorTokens": {
+      "type": "object",
+      "propertyNames": { "pattern": "^(--color-)?[a-z0-9][a-z0-9-]*$" },
+      "additionalProperties": { "$ref": "#/$defs/cssValue" }
+    },
+    "customProperties": {
+      "type": "object",
+      "propertyNames": { "pattern": "^--[\\w-]+$" },
+      "additionalProperties": { "$ref": "#/$defs/cssValue" }
+    },
+    "wallpaperFields": {
+      "type": "object",
+      "properties": {
+        "image": { "oneOf": [{ "type": "null" }, { "type": "string" }], "description": "png / jpg / webp / avif / gif / svg, relative to the theme folder." },
+        "fit": { "enum": ["cover", "contain", "fill", "tile", "center"] },
+        "position": { "$ref": "#/$defs/cssValue" },
+        "blur": { "type": "number", "minimum": 0, "maximum": 200 },
+        "dim": { "type": "number", "minimum": 0, "maximum": 1 },
+        "overlay": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cssValue" }] }
+      }
+    },
+    "wallpaper": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/wallpaperFields" }],
+      "unevaluatedProperties": false
+    }
+  }
+}

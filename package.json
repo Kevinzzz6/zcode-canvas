@@ -10,8 +10,10 @@
   "files": [
     "dist",
     "themes",
+    "schema",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE.md"
   ],
   "engines": {
     "node": ">=20"
@@ -36,6 +38,7 @@
   ],
   "devDependencies": {
     "@types/node": "^22.20.4",
+    "ajv": "^8.20.0",
     "electron": "^41.0.3",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.3"
