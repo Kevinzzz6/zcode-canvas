@@ -32,6 +32,7 @@ import {
   packageVersion,
   readState,
   removePatch,
+  restoreOwnership,
   runPendingSwap,
   type ReplaceOutcome,
 } from "../installer/zcode.ts";
@@ -112,6 +113,8 @@ function parseArgs(argv: string[]): Args {
 function writeConfig(config: CanvasConfig) {
   mkdirSync(home, { recursive: true });
   writeFileSync(paths.config(home), `${JSON.stringify(config, null, 2)}\n`);
+  // Under `sudo zcode-canvas apply` this runs as root; hand the file back to the invoking user.
+  restoreOwnership(home);
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);

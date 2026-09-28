@@ -1,8 +1,8 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chownSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { BOOT_PATH, bootSource, inspect, readArchive, readFile, writePatched, writeRestored, type PatchState } from "./asar.ts";
+import { BOOT_PATH, inspect, isPatchCurrent, readArchive, readFile, writePatched, writeRestored, type PatchState } from "./asar.ts";
 
 export interface Installation {
   dir: string;
@@ -168,6 +168,56 @@ export function isZCodeRunning(install: Installation): boolean {
   return windowsZCodeRunning(install.exe);
 }
 
+export interface SudoEnv {
+  SUDO_USER?: string | undefined;
+  SUDO_UID?: string | undefined;
+  SUDO_GID?: string | undefined;
+}
+
+/** uid/gid the Canvas home should belong to when Canvas runs as root: the user who invoked sudo.
+ *  Falls back to the owner of that user's home directory when sudo did not export SUDO_UID/SUDO_GID. */
+export function sudoOwner(env: SudoEnv, invokingHomeOwner?: { uid: number; gid: number }): { uid: number; gid: number } | null {
+  const user = env.SUDO_USER;
+  if (!user || user === "root") return null;
+  const uid = Number(env.SUDO_UID);
+  const gid = Number(env.SUDO_GID);
+  if (Number.isInteger(uid) && uid > 0 && Number.isInteger(gid) && gid >= 0) return { uid, gid };
+  return invokingHomeOwner && invokingHomeOwner.uid > 0 ? invokingHomeOwner : null;
+}
+
+function chownTree(root: string, uid: number, gid: number) {
+  chownSync(root, uid, gid);
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    // Symlinks (neither file nor directory here) are left alone: chowning them would touch targets.
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) chownTree(path, uid, gid);
+    else if (entry.isFile()) chownSync(path, uid, gid);
+  }
+}
+
+/**
+ * `sudo zcode-canvas apply` installs into the invoking user's home (see canvasHome), but as root —
+ * which would leave runtime/, themes/ and config.json owned by root and unwritable by that user.
+ * Hands everything under `home` back. Best effort: failures are reported but never fail apply,
+ * which already fixed the part that matters (the archive patch).
+ */
+export function restoreOwnership(home: string, log: (message: string) => void = console.warn): void {
+  if (process.platform === "win32" || typeof process.getuid !== "function" || process.getuid() !== 0) return;
+  let owner: { uid: number; gid: number } | null = null;
+  try {
+    const parent = statSync(dirname(home), { throwIfNoEntry: false });
+    owner = sudoOwner(process.env, parent ? { uid: parent.uid, gid: parent.gid } : undefined);
+  } catch {
+    owner = sudoOwner(process.env);
+  }
+  if (!owner) return;
+  try {
+    chownTree(home, owner.uid, owner.gid);
+  } catch (error) {
+    log(`! 无法把 ${home} 归还给当前用户: ${String(error)}\n  请手动执行: sudo chown -R $(whoami): "${home}"`);
+  }
+}
+
 /** Copies the runtime and built-in themes into the Canvas home. Safe while ZCode runs; takes effect on next launch. */
 export function deployRuntime(packageRoot: string, home: string) {
   const runtime = join(home, "runtime");
@@ -180,6 +230,7 @@ export function deployRuntime(packageRoot: string, home: string) {
   rmSync(runtime, { recursive: true, force: true });
   renameSync(staging, runtime);
   mkdirSync(join(home, "themes"), { recursive: true });
+  restoreOwnership(home);
 }
 
 export function packageVersion(packageRoot: string): string {
@@ -194,6 +245,22 @@ interface PendingRecord {
   asarMtimeMs: number;
 }
 
+/** Thrown after app.asar was replaced but the follow-up (re-signing) failed: the patch IS in
+ *  place, yet the command must not report success, because ZCode may refuse to start. */
+export class ResignError extends Error {
+  constructor(install: Installation, detail: string) {
+    super(
+      `app.asar 已替换，但重新签名失败 — ZCode 可能拒绝启动。\n` +
+        `  请手动执行: codesign --force --deep --sign - "${install.dir}"\n${detail}`,
+    );
+    this.name = "ResignError";
+  }
+}
+
+/** Re-signs `install` after its archive changed. null = done (or not needed on this platform);
+ *  a string = failure detail, reported by the caller once the replacement itself has succeeded. */
+type Resigner = (install: Installation) => string | null;
+
 const pendingPath = (install: Installation) => `${install.asar}.canvas-pending`;
 
 /**
@@ -202,15 +269,17 @@ const pendingPath = (install: Installation) => `${install.asar}.canvas-pending`;
  * detached helper swaps it in once ZCode has exited. POSIX renames over open files fine, so any
  * failure there is a real permission problem that the caller (running under sudo) must solve.
  */
-function replaceArchive(install: Installation, prepared: string, cliPath: string): ReplaceOutcome {
+function replaceArchive(install: Installation, prepared: string, cliPath: string, resign: Resigner): ReplaceOutcome {
   const pending = pendingPath(install);
   rmSync(pending, { force: true });
   rmSync(`${pending}.json`, { force: true });
   try {
     renameSync(prepared, install.asar);
-    adHocResign(install);
+    const resignFailure = resign(install);
+    if (resignFailure !== null) throw new ResignError(install, resignFailure);
     return "replaced";
   } catch (error) {
+    if (error instanceof ResignError) throw error;
     const code = (error as NodeJS.ErrnoException).code;
     if (process.platform !== "win32" || (code !== "EBUSY" && code !== "EPERM" && code !== "EACCES")) throw error;
   }
@@ -229,13 +298,15 @@ function replaceArchive(install: Installation, prepared: string, cliPath: string
 /**
  * macOS code signatures seal app.asar, so any patch — or restore, which also changes bytes under the
  * current signature — must be followed by an ad-hoc re-sign or Gatekeeper will call the app damaged.
+ * Returns false (instead of throwing) so the caller can report that the archive was already replaced.
  */
-function adHocResign(install: Installation) {
-  if (process.platform !== "darwin") return;
+const adHocResign: Resigner = (install: Installation): string | null => {
+  if (process.platform !== "darwin") return null;
   const result = spawnSync("codesign", ["--force", "--deep", "--sign", "-", install.dir], { encoding: "utf8" });
-  if (result.status !== 0)
-    console.warn(`! 重新签名失败，ZCode 可能拒绝启动。请手动执行: codesign --force --deep --sign - "${install.dir}"`);
-}
+  if (result.status === 0) return null;
+  return (result.stderr || "").trim().split("\n").slice(-3).join("\n").trim();
+};
+
 
 /** Body of the detached helper started by replaceArchive(). */
 export async function runPendingSwap(installDir: string, id: string) {
@@ -264,6 +335,12 @@ export async function runPendingSwap(installDir: string, id: string) {
   }
 }
 
+// The staleness check above is size + mtime, not a sha256 of app.asar, on purpose: while ZCode
+// runs, Windows locks the archive, so it cannot change under the helper's feet — and once ZCode
+// exits, any real update (installer, updater) writes a new file with a new size or mtime, which
+// the next one-second poll sees. Hashing the archive every retry would instead burn disk and CPU
+// for hours while waiting for ZCode to quit.
+
 export function hasPendingSwap(install: Installation): boolean {
   return existsSync(pendingPath(install));
 }
@@ -278,10 +355,12 @@ function verifyPatched(file: string, expectPatched: boolean) {
   if (state.patched !== expectPatched) throw new Error(`verification failed for ${file}`);
 }
 
-export function applyPatch(install: Installation, canvasVersion: string, cliPath: string): ReplaceOutcome | "unchanged" {
+export function applyPatch(install: Installation, canvasVersion: string, cliPath: string, resign: Resigner = adHocResign): ReplaceOutcome | "unchanged" {
   const archive = readArchive(install.asar);
   const state = inspect(archive);
-  if (state.patched && readFile(archive, BOOT_PATH).toString("utf8") === bootSource(state.main)) {
+  // "Unchanged" needs both the bootstrap this build would write and the patch format it stamps;
+  // otherwise a patch from an older Canvas (old record schema, old header shape) must be rewritten.
+  if (state.patched && isPatchCurrent(readFile(archive, BOOT_PATH).toString("utf8"), state)) {
     cancelPendingSwap(install);
     return "unchanged";
   }
@@ -289,20 +368,20 @@ export function applyPatch(install: Installation, canvasVersion: string, cliPath
   try {
     writePatched(readArchive(install.asar), prepared, canvasVersion);
     verifyPatched(prepared, true);
-    return replaceArchive(install, prepared, cliPath);
+    return replaceArchive(install, prepared, cliPath, resign);
   } finally {
     rmSync(prepared, { force: true });
   }
 }
 
-export function removePatch(install: Installation, cliPath: string): ReplaceOutcome | "not-patched" {
+export function removePatch(install: Installation, cliPath: string, resign: Resigner = adHocResign): ReplaceOutcome | "not-patched" {
   cancelPendingSwap(install);
   if (!readState(install).patched) return "not-patched";
   const prepared = `${install.asar}.canvas-tmp`;
   try {
     writeRestored(readArchive(install.asar), prepared);
     verifyPatched(prepared, false);
-    return replaceArchive(install, prepared, cliPath);
+    return replaceArchive(install, prepared, cliPath, resign);
   } finally {
     rmSync(prepared, { force: true });
   }

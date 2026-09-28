@@ -35,7 +35,7 @@ npm link            # 之后可以直接用 zcode-canvas 命令；不想 link �
 然后打补丁：
 
 - **Windows**：`zcode-canvas apply`。ZCode 装在 Program Files 这类受保护目录时，需要用管理员身份运行终端。
-- **Linux（rpm/deb/pacman）**：`sudo zcode-canvas apply`。ZCode 装在 `/opt/ZCode`（root 所有），补丁需要 root 权限；运行时和配置仍会装到**你的**用户目录（Canvas 会识别 `SUDO_USER`），不会放到 `/root` 下。若 `sudo` 找不到命令，用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。
+- **Linux（rpm/deb/pacman）**：`sudo zcode-canvas apply`。ZCode 装在 `/opt/ZCode`（root 所有），补丁需要 root 权限；运行时和配置仍会装到**你的**用户目录（Canvas 会识别 `SUDO_USER`），不会放到 `/root` 下，文件所有权也会归还给你（无需手动 chown）。若 `sudo` 找不到命令，用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。
 - **macOS**：`zcode-canvas apply`（ZCode.app 不可写时加 `sudo`）。**请先启动过一次 ZCode 再 apply**：修改 `.app` 会破坏官方代码签名，Canvas 会自动做 ad-hoc 重签名（`codesign --force --deep --sign -`）；已被系统放行的应用重签后可以正常启动，但保存的登录凭据可能失效，需要重新登录。`restore` 会把 `app.asar` 逐字节还原，但签名仍停留在 ad-hoc——想完全回到官方签名，重新安装一次 ZCode 即可。
 
 `apply` 会把运行时装到 `~/.zcode-canvas/`，然后给 ZCode 打补丁。
