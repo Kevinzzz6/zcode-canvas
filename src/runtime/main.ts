@@ -219,7 +219,7 @@ async function pickWallpaperFile(): Promise<string | null> {
   const options: OpenDialogOptions = {
     title: "选择壁纸图片",
     properties: ["openFile"],
-    filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "avif", "svg"] }],
+    filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "avif", "svg", "gif"] }],
   };
   const owner = panel && !panel.isDestroyed() ? panel : undefined;
   const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);

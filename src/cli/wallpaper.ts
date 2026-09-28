@@ -3,7 +3,8 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "nod
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { readConfig, writeConfigAtomic, type CanvasConfig } from "../shared/look.ts";
 
-const STATIC_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg"]);
+/** Image formats Chromium renders from a CSS background url; a gif simply plays its animation there. */
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg", ".gif"]);
 const PREVIEW_TYPES = new Set(["scene", "video", "web"]);
 
 export interface WallpaperImportResult {
@@ -26,8 +27,8 @@ function projectFile(projectDir: string, value: unknown, label: string): string 
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) fail(`${label} 路径超出项目目录`);
   if (!existsSync(file) || !statSync(file).isFile()) fail(`${label} 文件不存在: ${value}`);
   const extension = extname(file).toLowerCase();
-  if (!STATIC_EXTENSIONS.has(extension)) {
-    fail(`${label} 不是支持的静态图片格式（支持 png/jpg/jpeg/webp/avif/svg）: ${value}`);
+  if (!IMAGE_EXTENSIONS.has(extension)) {
+    fail(`${label} 不是支持的图片格式（支持 png/jpg/jpeg/webp/avif/svg/gif）: ${value}`);
   }
   return file;
 }

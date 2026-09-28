@@ -31,7 +31,7 @@ test("imports image projects and preserves existing config", () => {
   assert.equal(readdirSync(join(home, "imports", "wallpaper")).length, 2);
 });
 
-test("requires explicit preview for scene/video/web and rejects animation formats", () => {
+test("requires explicit preview for scene/video/web; accepts gif, rejects non-image formats", () => {
   const root = mkdtempSync(join(tmpdir(), "we-preview-"));
   const project = join(root, "scene");
   mkdirSync(project, { recursive: true });
@@ -40,9 +40,13 @@ test("requires explicit preview for scene/video/web and rejects animation format
   assert.throws(() => importWallpaper(project, join(root, "home")), /--preview/);
   const result = importWallpaper(project, join(root, "home"), true);
   assert.match(result.destination, /-preview-[0-9a-f]{12}\.jpg$/);
+  // An image project's own gif entry imports directly; its animation plays in the CSS background.
   writeFileSync(join(project, "project.json"), JSON.stringify({ type: "image", file: "anim.gif" }));
   writeFileSync(join(project, "anim.gif"), "gif");
-  assert.throws(() => importWallpaper(project, join(root, "home")), /静态图片格式/);
+  assert.match(importWallpaper(project, join(root, "home")).destination, /anim-[0-9a-f]{12}\.gif$/);
+  writeFileSync(join(project, "project.json"), JSON.stringify({ type: "image", file: "clip.mp4" }));
+  writeFileSync(join(project, "clip.mp4"), "mp4");
+  assert.throws(() => importWallpaper(project, join(root, "home")), /图片格式/);
 });
 
 test("rejects traversal and unsupported project types", () => {

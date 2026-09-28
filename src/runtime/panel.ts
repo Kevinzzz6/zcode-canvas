@@ -10,8 +10,9 @@ import { basename, dirname, extname, resolve, sep } from "node:path";
 import { listThemes, readConfig, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type ThemeManifest, type WallpaperFit } from "../shared/look.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER } from "../shared/protocol.ts";
 
-/** Static image formats the panel accepts; anything executable or animated is out of scope. */
-export const WALLPAPER_EXTENSIONS: readonly string[] = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg"];
+/** Image formats the panel accepts; a gif plays its animation in the CSS background. Anything
+ *  executable stays out of scope. */
+export const WALLPAPER_EXTENSIONS: readonly string[] = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg", ".gif"];
 
 export interface PanelThemeInfo {
   id: string;

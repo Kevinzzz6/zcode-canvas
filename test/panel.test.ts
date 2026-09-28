@@ -145,12 +145,15 @@ test("wallpaperDisplayName hides the content tag, old names pass through", () =>
 test("importWallpaperFile rejects non-image formats", () => {
   const home = makeHome();
   mkdirSync(join(home, "picker"), { recursive: true });
-  for (const name of ["a.txt", "b.exe", "c.mp4", "d.pkg", "e.scene", "f.gif", "noext"]) {
+  for (const name of ["a.txt", "b.exe", "c.mp4", "d.pkg", "e.scene", "f.webm", "noext"]) {
     writeFileSync(join(home, "picker", name), "x");
     assert.throws(() => importWallpaperFile(join(home, "picker", name), home), { message: /不支持的壁纸格式/ }, name);
   }
   writeFileSync(join(home, "picker", "UPPER.PNG"), "x");
   assert.ok(importWallpaperFile(join(home, "picker", "UPPER.PNG"), home).endsWith(`UPPER-${tag("x")}.png`));
+  // A picked gif is stored like any other image; Chromium plays its animation in the background.
+  writeFileSync(join(home, "picker", "loop.gif"), "gif");
+  assert.ok(importWallpaperFile(join(home, "picker", "loop.gif"), home).endsWith(`loop-${tag("gif")}.gif`));
   assert.throws(() => importWallpaperFile(join(home, "picker", "missing.png"), home), /不可用/);
 });
 

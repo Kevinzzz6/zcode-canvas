@@ -79,7 +79,7 @@ zcode-canvas restore                         # 还原官方 app.asar
 
 ## Wallpaper Engine 本地导入
 
-只读取用户明确指定的本地项目目录和 `project.json`，不会联网、解包 pkg、执行 JS/exe 或修改 Wallpaper Engine 目录。`type: image` 仅导入其入口图片；`scene`、`video`、`web` 默认拒绝，只有显式加 `--preview` 才导入 `preview` 静态图。支持 png、jpg/jpeg、webp、avif、svg；GIF 等可能动画的格式不称为静态图。选中的文件会复制到 Canvas 自有的 `~/.zcode-canvas/imports/wallpaper/`，并仅更新 `wallpaper.image`，保留其它配置。
+只读取用户明确指定的本地项目目录和 `project.json`，不会联网、解包 pkg、执行 JS/exe 或修改 Wallpaper Engine 目录。`type: image` 仅导入其入口图片；`scene`、`video`、`web` 默认拒绝，只有显式加 `--preview` 才导入 `preview` 预览图。支持 png、jpg/jpeg、webp、avif、svg、gif——GIF 的动画会直接在 CSS 背景里播放，相当于轻量动态壁纸；但不会运行任何 Wallpaper Engine 内容。选中的文件会复制到 Canvas 自有的 `~/.zcode-canvas/imports/wallpaper/`，并仅更新 `wallpaper.image`，保留其它配置。
 
 ```sh
 zcode-canvas wallpaper import "D:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\项目目录"
@@ -93,7 +93,7 @@ zcode-canvas wallpaper import ./my-project --preview
 运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**（Windows 无边框窗口看不到菜单栏，入口在**托盘右键菜单**里），或 ZCode 窗口内按 `Ctrl/Cmd+Alt+Shift+O` 打开外观中心——这个快捷键只在 ZCode 窗口获得焦点时生效，不是系统级全局热键。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。ZCode 重建菜单（切换语言、缩放等）时入口会自动补回。面板只有两组设置：
 
 - **主题**：下拉切换（无主题 / 内置 / 用户主题），选中即生效，正在使用的主窗口就是预览；
-- **当前壁纸**：点“选择图片”从原生文件对话框选一张（png / jpg / jpeg / webp / avif / svg），图片会复制进 Canvas 自己的目录再设为壁纸（文件名带内容哈希，同名不同图不会互相覆盖）；“清除壁纸”取消单独设置，让主题自带的壁纸重新生效。铺放、模糊、压暗随改随生效；“恢复默认外观”只取消主题和壁纸覆盖，不删除任何文件。
+- **当前壁纸**：点“选择图片”从原生文件对话框选一张（png / jpg / jpeg / webp / avif / svg / gif），图片会复制进 Canvas 自己的目录再设为壁纸（文件名带内容哈希，同名不同图不会互相覆盖）；“清除壁纸”取消单独设置，让主题自带的壁纸重新生效。铺放、模糊、压暗随改随生效；“恢复默认外观”只取消主题和壁纸覆盖，不删除任何文件。
 
 所有修改都走现有的热更新机制实时刷新主窗口，不需要重启 ZCode。
 
