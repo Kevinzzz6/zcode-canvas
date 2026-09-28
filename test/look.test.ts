@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, type CssValueKind } from "../src/shared/css.ts";
-import { checkManifest, listThemes, loadLook, resolveLook, type ThemeEntry } from "../src/shared/look.ts";
+import { checkManifest, listThemes, loadLook, readConfig, resolveLook, type ThemeEntry } from "../src/shared/look.ts";
 
 const theme = (manifest: ThemeEntry["manifest"], dir = "/themes/t"): ThemeEntry => ({ id: "t", dir, builtin: true, manifest });
 
@@ -132,6 +132,25 @@ test("loadLook reads config and user themes from disk; enabled=false switches of
   assert.deepEqual(loadLook(home).warnings, ['theme "missing" not found']);
   writeFileSync(join(home, "config.json"), JSON.stringify({ enabled: false, theme: "mine" }));
   assert.equal(loadLook(home).look, null);
+});
+
+test("a broken config.json reports the file, the position and a way out", () => {
+  const home = mkdtempSync(join(tmpdir(), "zc-home-"));
+  writeFileSync(join(home, "config.json"), '{ "theme": "mine" ');
+  assert.throws(
+    () => readConfig(home),
+    (error: unknown) => {
+      const message = (error as Error).message;
+      return message.includes(join(home, "config.json")) && message.includes("不是有效的 JSON") && message.includes("删除该文件");
+    },
+  );
+  for (const content of ["[]", "123", '"text"', "null"]) {
+    writeFileSync(join(home, "config.json"), content);
+    assert.throws(() => readConfig(home), /不是 JSON 对象/, content);
+  }
+  // Once the syntax error is fixed, everything reads again.
+  writeFileSync(join(home, "config.json"), '{ "theme": "mine" }');
+  assert.equal(readConfig(home).theme, "mine");
 });
 
 const builtinDir = fileURLToPath(new URL("../themes", import.meta.url));

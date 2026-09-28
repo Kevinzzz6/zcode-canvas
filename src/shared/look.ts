@@ -108,6 +108,8 @@ export interface CanvasConfig extends LookSpec {
   enabled?: boolean;
   /** Active theme id (folder name), or null for none. */
   theme?: string | null;
+  /** Re-patch app.asar automatically after a ZCode update replaced it. Default true. */
+  updateRescue?: boolean;
 }
 
 export interface ResolvedWallpaper {
@@ -169,7 +171,20 @@ export const DEFAULT_CONFIG: CanvasConfig = { enabled: true, theme: null };
 export function readConfig(home: string): CanvasConfig {
   const file = paths.config(home);
   if (!existsSync(file)) return { ...DEFAULT_CONFIG };
-  return { ...DEFAULT_CONFIG, ...(JSON.parse(readFileSync(file, "utf8")) as CanvasConfig) };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    // V8's message already names the offending token and position; add the file and a way out.
+    throw new Error(
+      `配置文件 ${file} 不是有效的 JSON（${(error as Error).message}）。\n` +
+        "  请修正语法错误后重试；或删除该文件，主题设置会回到默认。",
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`配置文件 ${file} 的内容不是 JSON 对象。\n  请修正后重试；或删除该文件，主题设置会回到默认。`);
+  }
+  return { ...DEFAULT_CONFIG, ...(parsed as CanvasConfig) };
 }
 
 /** Replace config.json in one rename, so a reader never sees a half-written file. */
