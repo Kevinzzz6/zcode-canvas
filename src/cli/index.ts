@@ -1,5 +1,5 @@
-import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildCss } from "../shared/css.ts";
@@ -42,14 +42,14 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
   restore [--purge]      还原官方 app.asar；--purge 同时删除 ~/.zcode-canvas
   themes                 列出可用主题
   use <主题|none>         切换主题（ZCode 运行中实时生效）
-  set <键> <值>           修改单项设置，如: set wallpaper.image D:\\pic.jpg
+  set <键> <值>           修改单项设置，如: set wallpaper.image ~/pic.jpg
   unset <键>              删除设置（可以是整组，如 wallpaper），回到主题默认值
   new <id>               以当前设置新建一个主题（会复制用到的图片）
   css                    打印当前生成的 CSS
-  open                   在资源管理器中打开 ~/.zcode-canvas
+  open                   在文件管理器中打开 ~/.zcode-canvas
 
 通用参数:
-  --zcode <目录>          ZCode 安装目录（默认自动查找）
+  --zcode <目录>          ZCode 安装目录（默认自动查找；macOS 也可传 ZCode.app 所在目录）
 
 可设置的键:
   enabled                     true | false
@@ -63,7 +63,8 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
   wallpaper.blur              壁纸模糊 px
   wallpaper.dim               遮罩强度 0~1
   wallpaper.overlay           遮罩颜色（默认暗色黑 / 亮色白）
-  glass.material              ${MATERIALS.join(" | ")}（Windows 窗口材质）
+  glass.material              ${MATERIALS.join(" | ")}（Windows 窗口材质；macOS 映射为原生
+                             毛玻璃，none 关闭；Linux 忽略此项，透明度由窗口本身决定）
   glass.opacity               界面表面不透明度 0~1，1 = 官方外观
   glass.blur                  主内容区背景模糊 px
   startup.background          启动画面背景（颜色或渐变）
@@ -136,6 +137,18 @@ function describeOutcome(outcome: ReplaceOutcome, action: string) {
     );
 }
 
+function permissionTip(): string {
+  if (process.platform === "win32") return "  ZCode 装在受保护目录（如 Program Files）时，请用管理员身份运行终端。";
+  if (process.platform === "linux")
+    return "  Linux 下 ZCode 通常装在 /opt/ZCode（属于 root），请用 sudo 重试，例如: sudo zcode-canvas apply\n  （运行时和配置仍会装到你的用户目录，不会放到 /root 下）";
+  return "  ZCode 所在位置不可写，请用 sudo 重试，例如: sudo zcode-canvas apply";
+}
+
+function revealInFileManager(path: string) {
+  const tool = process.platform === "win32" ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
+  spawn(tool, [path], { detached: true, stdio: "ignore" }).unref();
+}
+
 function status(explicit?: string) {
   const install = locateZCode(explicit);
   const state = readState(install);
@@ -174,7 +187,7 @@ function restore(explicit: string | undefined, purge: boolean) {
   if (outcome === "not-patched") console.log("app.asar 没有 Canvas 补丁，无需还原。");
   else describeOutcome(outcome, "还原官方 app.asar");
   if (purge) {
-    execFileSync("cmd", ["/c", "rmdir", "/s", "/q", home], { stdio: "ignore" });
+    rmSync(home, { recursive: true, force: true });
     console.log(`✓ 已删除 ${home}`);
   }
 }
@@ -267,8 +280,7 @@ async function main() {
       return printCss();
     case "open":
       mkdirSync(home, { recursive: true });
-      spawn("explorer", [home], { detached: true, stdio: "ignore" }).unref();
-      return;
+      return revealInFileManager(home);
     case "__swap":
       return runPendingSwap(positional[0]!, positional[1]!);
     case undefined:
@@ -284,8 +296,8 @@ async function main() {
 
 main().catch((error: unknown) => {
   const e = error as NodeJS.ErrnoException;
-  if (e.code === "EPERM" || e.code === "EACCES") {
-    console.error(`✗ 没有写入权限: ${e.path ?? ""}\n  ZCode 装在受保护目录（如 Program Files）时，请用管理员身份运行终端。`);
+  if (e.code === "EPERM" || e.code === "EACCES" || e.code === "EROFS") {
+    console.error(`✗ 没有写入权限: ${e.path ?? ""}\n${permissionTip()}`);
   } else console.error(`✗ ${e.message ?? String(error)}`);
   process.exitCode = 1;
 });

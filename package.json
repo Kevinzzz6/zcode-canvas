@@ -17,7 +17,9 @@
     "node": ">=20"
   },
   "os": [
-    "win32"
+    "win32",
+    "linux",
+    "darwin"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
