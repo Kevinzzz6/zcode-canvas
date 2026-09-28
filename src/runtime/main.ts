@@ -2,13 +2,14 @@
 // Anything thrown here must never reach ZCode: every entry point is guarded.
 import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, Tray, type IpcMainEvent, type OpenDialogOptions, type WebContents } from "electron";
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, existsSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
-import { CHANNEL_CSS, CHANNEL_GET, encodeState } from "../shared/protocol.ts";
+import { CHANNEL_CSS, CHANNEL_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
+import { startDetachedPowerShell } from "../shared/windows.ts";
 import { registerPanelHandlers } from "./panel.ts";
+import { stagedUpdateCacheDir, stagedUpdateIsPresent, windowsRescueWaiterCommand } from "./rescue.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome } from "./watch.ts";
 
@@ -53,6 +54,27 @@ const renderers = new Set<WebContents>();
 
 let panel: BrowserWindow | null = null;
 
+/** Set while ZCode's shortcut recorder is armed; the panel shortcut stands down so the user can
+ *  bind the combination to a ZCode command (and no panel pops up mid-recording). */
+let shortcutRecordingActive = false;
+
+/**
+ * ZCode notifies the main process of the recorder state over ipcMain.on (desktopMainIpcPlatform).
+ * The runtime loads before ZCode's entry, so wrapping the registration lets it observe that state
+ * — and since toggling the recorder makes ZCode rebuild the application menu, the menu wrapper
+ * below naturally re-adds the Canvas item with/without its accelerator at exactly that moment.
+ */
+function observeShortcutRecording() {
+  type Listener = (event: IpcMainEvent, ...args: unknown[]) => void;
+  const on = ipcMain.on.bind(ipcMain) as (channel: string, listener: Listener) => ReturnType<typeof ipcMain.on>;
+  const wrapped: typeof ipcMain.on = (channel, listener) =>
+    on(channel, (event, ...args) => {
+      if (channel === ZCODE_SET_SHORTCUT_RECORDING && typeof args[0] === "boolean") shortcutRecordingActive = args[0];
+      return listener(event, ...args);
+    });
+  ipcMain.on = wrapped;
+}
+
 function panelPath(file: string): string {
   return join(__dirname, "panel", file);
 }
@@ -70,7 +92,8 @@ function openPanel() {
 function canvasMenuItem(): MenuItem {
   return new MenuItem({
     label: MENU_LABEL,
-    submenu: [{ label: "打开外观中心", accelerator: PANEL_ACCELERATOR, click: openPanel }],
+    // Off while ZCode records shortcuts: the recorder must see the combination, not the menu.
+    submenu: [{ label: "打开外观中心", accelerator: shortcutRecordingActive ? undefined : PANEL_ACCELERATOR, click: openPanel }],
   });
 }
 
@@ -124,15 +147,16 @@ function wrapTrayMenu() {
 
 /**
  * The panel shortcut fires only while a ZCode window has focus, never as a system-wide hotkey: a
- * globalShortcut would steal the combination from every other app and trigger while ZCode itself
- * records user shortcuts. App-menu accelerators (see canvasMenuItem) already cover the focused
- * window on their own; before-input-event is the backstop that does not depend on menu visibility.
+ * globalShortcut would steal the combination from every other app. It also stands down while
+ * ZCode's shortcut recorder is armed, so the combination can be recorded for a ZCode command.
+ * App-menu accelerators (see canvasMenuItem) already cover the focused window on their own;
+ * before-input-event is the backstop that does not depend on menu visibility.
  */
 function installInWindowShortcut() {
   app.on("browser-window-created", (_event, window) => {
     try {
       window.webContents.on("before-input-event", (event, input) => {
-        if (!matchesPanelShortcut(input)) return;
+        if (shortcutRecordingActive || !matchesPanelShortcut(input)) return;
         event.preventDefault();
         openPanel();
       });
@@ -162,53 +186,52 @@ function senderIsMainWindow(event: IpcMainEvent): boolean {
 }
 
 /**
- * electron-updater stages a downloaded update under <cache root>/<updaterCacheDirName>/pending —
- * the name comes from resources/app-update.yml — and installs it as the app quits (auto-install on
- * quit, or the explicit "restart to update" flow). A non-empty staging dir is the signal that this
- * quit is an updating one, so ordinary quits spawn nothing at all.
- */
-function stagedUpdateIsPresent(): boolean {
-  try {
-    const yml = readFileSync(join(process.resourcesPath, "app-update.yml"), "utf8");
-    const name = /^updaterCacheDirName:\s*(\S+)/m.exec(yml)?.[1];
-    if (!name) return false;
-    const cacheRoot =
-      process.platform === "win32"
-        ? process.env.LOCALAPPDATA
-        : process.platform === "darwin"
-          ? join(homedir(), "Library", "Caches")
-          : process.env.XDG_CACHE_HOME || join(homedir(), ".cache");
-    if (!cacheRoot) return false;
-    const pending = join(cacheRoot, name, "pending");
-    return existsSync(pending) && readdirSync(pending).length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Official updates replace app.asar wholesale, which removes the patch — and with it this runtime,
- * silently reverting the whole look. When ZCode quits over a staged update, hand over to a detached
- * helper (ZCode.exe running as plain Node through the default-enabled RunAsNode fuse) that waits
- * for the updater to finish writing the new archive and re-applies the patch.
- * `zcode-canvas set updateRescue false` turns this off.
+ * silently reverting the whole look. Nothing of Canvas may run from the install dir while the
+ * installer works (electron-builder's NSIS running-app check kills every process whose path is
+ * under the install dir), so on Windows the runtime only starts System32's powershell.exe: a
+ * hidden waiter that confirms the update installer actually appears, waits for it to exit, and
+ * only then runs the NEW ZCode.exe as plain Node to re-apply the patch. Because ZCode on Windows
+ * installs only via an explicit "restart to update" (auto-install-on-quit is off there), an
+ * ordinary quit with a merely downloaded update also starts that waiter — it sees no installer,
+ * logs, and exits.
+ * macOS/Linux hand over directly: no installer sweeps those platforms, and POSIX does not lock
+ * replaced binaries. `zcode-canvas set updateRescue false` turns the whole mechanism off.
  */
 function spawnUpdateRescue() {
   try {
     if (readConfig(home).updateRescue === false) return;
-    if (!stagedUpdateIsPresent()) return;
     const cliCopy = join(paths.runtime(home), "cli.mjs");
     const asar = join(process.resourcesPath, "app.asar");
     if (!existsSync(cliCopy) || !existsSync(asar)) return;
     const installDir =
       process.platform === "darwin" ? dirname(dirname(process.resourcesPath)) : dirname(process.resourcesPath);
-    spawn(process.execPath, [cliCopy, "__rescue", installDir, home], {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-    }).unref();
-    log("update rescue helper handed over");
+    if (process.platform === "win32") {
+      if (!stagedUpdateIsPresent(process.resourcesPath)) return;
+      const updaterCacheDir = stagedUpdateCacheDir(process.resourcesPath);
+      if (!updaterCacheDir) return;
+      // The waiter script is staged in the canvas home and started via the safe launcher: a
+      // detached powershell.exe of our own dies at spawn (console subsystem, no console).
+      const scriptFile = join(paths.runtime(home), "rescue-waiter.ps1");
+      writeFileSync(scriptFile, `${windowsRescueWaiterCommand({
+        updaterCacheDir,
+        rescueExe: process.execPath,
+        cliCopy,
+        installDir,
+        canvasHome: home,
+        logFile,
+      })}\n`, "utf8");
+      const { started, error } = startDetachedPowerShell(scriptFile);
+      log(started ? "rescue waiter handed over" : `rescue waiter failed to start${error ? `: ${error}` : ""}`);
+    } else {
+      spawn(process.execPath, [cliCopy, "__rescue", installDir, home], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      }).unref();
+      log("update rescue helper handed over");
+    }
   } catch (error) {
     log(`update rescue unavailable: ${String(error)}`);
   }
@@ -276,6 +299,7 @@ function reload() {
 try {
   wrapApplicationMenu();
   wrapTrayMenu();
+  observeShortcutRecording();
   installInWindowShortcut();
   app.once("will-quit", spawnUpdateRescue);
 

@@ -11,6 +11,13 @@ export const CHANNEL_PANEL_GET = "zcode-canvas:panel-get";
 export const CHANNEL_PANEL_APPLY = "zcode-canvas:panel-apply";
 export const CHANNEL_PANEL_PICK_WALLPAPER = "zcode-canvas:panel-pick-wallpaper";
 
+/**
+ * Not a Canvas channel: ZCode's own notification that its shortcut recorder armed/disarmed
+ * (desktopMainIpcPlatform.ts). The runtime observes it so the panel shortcut stands down while a
+ * recording is in progress — otherwise the user could never bind this combination in ZCode.
+ */
+export const ZCODE_SET_SHORTCUT_RECORDING = "zcode:set-shortcut-recording-active";
+
 export const PROTOCOL_VERSION = 1;
 
 export interface CanvasStatePayload {
