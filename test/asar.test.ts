@@ -73,3 +73,32 @@ test("re-patching a patched archive starts from the pristine state", () => {
   writePatched(readArchive(once), twice, "0.0.0-test");
   assert.deepEqual(readFileSync(twice), readFileSync(once));
 });
+
+test("an archive modified after patching is refused instead of corrupted", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const original = makeArchive(dir);
+  const patched = join(dir, "patched.asar");
+  writePatched(readArchive(original), patched, "0.0.0-test");
+  const patchedBytes = readFileSync(patched);
+
+  // Another mod appends data after the Canvas patch: restore and re-patch must both refuse rather
+  // than truncate the file under a header that still references the addition.
+  writeFileSync(patched, Buffer.concat([patchedBytes, Buffer.from("intruder")]));
+  assert.throws(() => writeRestored(readArchive(patched), join(dir, "r.asar")), /modified by something else/);
+  assert.throws(() => writePatched(readArchive(patched), join(dir, "p2.asar"), "0.0.0-test"), /modified by something else/);
+
+  // An in-place edit in the middle of the file is caught the same way (a byte inside the
+  // bootstrap text, so the record on either side of it stays readable).
+  const flipped = Buffer.from(patchedBytes);
+  const archive = readArchive(patched);
+  const inBoot = archive.dataOffset + (inspect(archive).restore?.originalDataSize ?? 0) + 100;
+  flipped[inBoot] = (flipped[inBoot] ?? 0) ^ 0x20;
+  writeFileSync(patched, flipped);
+  assert.throws(() => writeRestored(readArchive(patched), join(dir, "r2.asar")), /modified by something else/);
+
+  // With the modification undone, restoring reproduces the original byte for byte again.
+  writeFileSync(patched, patchedBytes);
+  const restored = join(dir, "restored.asar");
+  writeRestored(readArchive(patched), restored);
+  assert.deepEqual(readFileSync(restored), readFileSync(original));
+});

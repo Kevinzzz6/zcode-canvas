@@ -7,9 +7,14 @@
 // A patch leaves every original byte of the data region untouched and appends three files:
 //   package.json                 same as the original, with "main" pointing at the bootstrap
 //   out/zcode-canvas/boot.mjs    loads the Canvas runtime, then the original entry
-//   out/zcode-canvas/restore.json  the original package.json entry and data size
+//   out/zcode-canvas/restore.json  the original package.json entry, data size and archive hash
 // Restoring rewrites the original header and truncates the appended bytes, which reproduces the
 // original file byte for byte.
+//
+// Patching is deterministic, so the exact bytes of a Canvas-patched archive can be recomputed from
+// its restore record. Before restoring or re-patching, the archive on disk is compared against that
+// expectation: if another tool touched it in the meantime, the record no longer describes the file
+// and any rewrite could corrupt the archive, so the operation is refused instead.
 import { createHash } from "node:crypto";
 import { closeSync, fstatSync, openSync, readSync, writeSync } from "node:fs";
 import { posix } from "node:path";
@@ -43,6 +48,8 @@ export interface RestoreRecord {
   canvasVersion: string;
   originalMain: string;
   originalDataSize: number;
+  /** sha256 of the pristine archive, verified after a restore. Absent in records written before this field existed. */
+  originalHash?: string;
   packageJson: AsarEntry;
 }
 
@@ -102,6 +109,21 @@ function sha256(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
 }
 
+function sha256File(path: string): string {
+  const fd = openSync(path, "r");
+  try {
+    const hash = createHash("sha256");
+    const chunk = Buffer.alloc(1024 * 1024);
+    for (;;) {
+      const read = readSync(fd, chunk, 0, chunk.length, null);
+      if (read === 0) return hash.digest("hex");
+      hash.update(chunk.subarray(0, read));
+    }
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function fileEntry(data: Buffer, offset: number): AsarEntry {
   const blocks: string[] = [];
   for (let i = 0; i < data.length; i += BLOCK_SIZE) blocks.push(sha256(data.subarray(i, i + BLOCK_SIZE)));
@@ -121,8 +143,7 @@ export function inspect(archive: AsarArchive): PatchState {
 }
 
 /** The archive as it was before any Canvas patch: header and length of the original data region. */
-function pristine(archive: AsarArchive): { header: AsarHeader; dataSize: number } {
-  const { restore } = inspect(archive);
+function pristine(archive: AsarArchive, restore: RestoreRecord | null): { header: AsarHeader; dataSize: number } {
   if (!restore) return { header: archive.header, dataSize: archive.dataSize };
   const header = structuredClone(archive.header);
   header.files["package.json"] = restore.packageJson;
@@ -153,18 +174,93 @@ await import(${JSON.stringify(specifier.startsWith(".") ? specifier : `./${speci
 `;
 }
 
-function writeHeader(fd: number, header: AsarHeader): number {
+function headerBytes(header: AsarHeader): Buffer {
   const json = Buffer.from(JSON.stringify(header), "utf8");
   const aligned = (json.length + 3) & ~3;
-  const prefix = Buffer.alloc(16);
-  prefix.writeUInt32LE(4, 0);
-  prefix.writeUInt32LE(8 + aligned, 4);
-  prefix.writeUInt32LE(4 + aligned, 8);
-  prefix.writeUInt32LE(json.length, 12);
-  writeSync(fd, prefix, 0, 16, 0);
-  writeSync(fd, json, 0, json.length, 16);
-  if (aligned > json.length) writeSync(fd, Buffer.alloc(aligned - json.length), 0, aligned - json.length, 16 + json.length);
-  return 16 + aligned;
+  const buffer = Buffer.alloc(16 + aligned);
+  buffer.writeUInt32LE(4, 0);
+  buffer.writeUInt32LE(8 + aligned, 4);
+  buffer.writeUInt32LE(4 + aligned, 8);
+  buffer.writeUInt32LE(json.length, 12);
+  json.copy(buffer, 16);
+  return buffer;
+}
+
+function writeHeader(fd: number, header: AsarHeader): number {
+  const bytes = headerBytes(header);
+  writeSync(fd, bytes, 0, bytes.length, 0);
+  return bytes.length;
+}
+
+interface PatchPlan {
+  header: AsarHeader;
+  dataSize: number;
+  extra: Buffer[];
+  record: RestoreRecord;
+}
+
+/** Everything a Canvas patch of `source`'s pristine state consists of. Fully deterministic, so
+ *  running it twice — once here, once when the patch was written — yields identical bytes. */
+function planPatch(source: AsarArchive, base: { header: AsarHeader; dataSize: number }, canvasVersion: string, originalHash?: string): PatchPlan {
+  const originalPackage = readEntry(source, base.header.files["package.json"]!);
+  const pkg = JSON.parse(originalPackage.toString("utf8")) as { main?: string };
+  const originalMain = pkg.main ?? "index.js";
+
+  const packageJson = Buffer.from(JSON.stringify({ ...pkg, main: BOOT_PATH }, null, 2), "utf8");
+  const boot = Buffer.from(bootSource(originalMain), "utf8");
+  const record: RestoreRecord = {
+    canvasVersion,
+    originalMain,
+    originalDataSize: base.dataSize,
+    originalHash,
+    packageJson: base.header.files["package.json"]!,
+  };
+  const restore = Buffer.from(JSON.stringify(record, null, 2), "utf8");
+
+  const header = structuredClone(base.header);
+  let offset = base.dataSize;
+  const place = (data: Buffer) => {
+    const entry = fileEntry(data, offset);
+    offset += data.length;
+    return entry;
+  };
+  header.files["package.json"] = place(packageJson);
+  const out = (header.files.out ??= { files: {} });
+  out.files![CANVAS_DIR] = { files: { "boot.mjs": place(boot), "restore.json": place(restore) } };
+  return { header, dataSize: base.dataSize, extra: [packageJson, boot, restore], record };
+}
+
+/** sha256 of the archive writeArchive(source, target, header, dataSize, extra) would produce. */
+function plannedArchiveHash(source: AsarArchive, plan: { header: AsarHeader; dataSize: number; extra: Buffer[] }): string {
+  const hash = createHash("sha256");
+  hash.update(headerBytes(plan.header));
+  const fd = openSync(source.path, "r");
+  try {
+    const chunk = Buffer.alloc(4 * 1024 * 1024);
+    for (let copied = 0; copied < plan.dataSize; ) {
+      const read = readSync(fd, chunk, 0, Math.min(chunk.length, plan.dataSize - copied), source.dataOffset + copied);
+      if (read === 0) throw new Error("unexpected end of archive");
+      hash.update(chunk.subarray(0, read));
+      copied += read;
+    }
+  } finally {
+    closeSync(fd);
+  }
+  for (const buffer of plan.extra) hash.update(buffer);
+  return hash.digest("hex");
+}
+
+/** True when the archive on disk is exactly the patch its restore record describes. */
+function untouchedSincePatch(source: AsarArchive, base: { header: AsarHeader; dataSize: number }, restore: RestoreRecord): boolean {
+  const plan = planPatch(source, base, restore.canvasVersion, restore.originalHash);
+  return sha256File(source.path) === plannedArchiveHash(source, plan);
+}
+
+function modifiedAfterPatchError(path: string): Error {
+  return new Error(
+    `${path} was modified by something else after the Canvas patch. Rewriting it could corrupt the archive, ` +
+      "so Canvas refuses to continue. Reinstall ZCode (or put back its official app.asar) first.",
+  );
 }
 
 function writeArchive(source: AsarArchive, target: string, header: AsarHeader, dataSize: number, extra: Buffer[]) {
@@ -192,37 +288,22 @@ function writeArchive(source: AsarArchive, target: string, header: AsarHeader, d
 
 /** Writes a patched copy of `source` to `target`. Re-patching an already patched archive starts from the pristine state. */
 export function writePatched(source: AsarArchive, target: string, canvasVersion: string) {
-  const base = pristine(source);
-  const originalPackage = readEntry(source, base.header.files["package.json"]!);
-  const pkg = JSON.parse(originalPackage.toString("utf8")) as { main?: string };
-  const originalMain = pkg.main ?? "index.js";
-
-  const packageJson = Buffer.from(JSON.stringify({ ...pkg, main: BOOT_PATH }, null, 2), "utf8");
-  const boot = Buffer.from(bootSource(originalMain), "utf8");
-  const record: RestoreRecord = {
-    canvasVersion,
-    originalMain,
-    originalDataSize: base.dataSize,
-    packageJson: base.header.files["package.json"]!,
-  };
-  const restore = Buffer.from(JSON.stringify(record, null, 2), "utf8");
-
-  const header = structuredClone(base.header);
-  let offset = base.dataSize;
-  const place = (data: Buffer) => {
-    const entry = fileEntry(data, offset);
-    offset += data.length;
-    return entry;
-  };
-  header.files["package.json"] = place(packageJson);
-  const out = (header.files.out ??= { files: {} });
-  out.files![CANVAS_DIR] = { files: { "boot.mjs": place(boot), "restore.json": place(restore) } };
-
-  writeArchive(source, target, header, base.dataSize, [packageJson, boot, restore]);
+  const previous = inspect(source).restore;
+  const base = pristine(source, previous);
+  if (previous && !untouchedSincePatch(source, base, previous)) throw modifiedAfterPatchError(source.path);
+  const originalHash = previous?.originalHash ?? sha256File(source.path);
+  const plan = planPatch(source, base, canvasVersion, originalHash);
+  writeArchive(source, target, plan.header, plan.dataSize, plan.extra);
 }
 
 /** Writes the original, unpatched archive to `target`. */
 export function writeRestored(source: AsarArchive, target: string) {
-  const base = pristine(source);
+  const previous = inspect(source).restore;
+  if (!previous) throw new Error(`${source.path} carries no Canvas patch`);
+  const base = pristine(source, previous);
+  if (!untouchedSincePatch(source, base, previous)) throw modifiedAfterPatchError(source.path);
   writeArchive(source, target, base.header, base.dataSize, []);
+  // The caller only moves the result over the real app.asar once this function returned.
+  if (previous.originalHash && sha256File(target) !== previous.originalHash)
+    throw new Error(`restoring ${source.path} did not reproduce the original archive byte for byte`);
 }
