@@ -1,11 +1,12 @@
 // Runs inside ZCode's Electron main process, loaded by the bootstrap before ZCode's own entry.
 // Anything thrown here must never reach ZCode: every entry point is guarded.
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, MenuItem, session, type WebContents } from "electron";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, MenuItem, session, type OpenDialogOptions, type WebContents } from "electron";
+import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { buildCss } from "../shared/css.ts";
-import { canvasHome, listThemes, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
-import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, encodeState } from "../shared/protocol.ts";
+import { canvasHome, loadLook, paths, type Material } from "../shared/look.ts";
+import { CHANNEL_CSS, CHANNEL_GET, encodeState } from "../shared/protocol.ts";
+import { registerPanelHandlers } from "./panel.ts";
 import { watchHome } from "./watch.ts";
 
 const PANEL_ACCELERATOR = "CommandOrControl+Alt+Shift+O";
@@ -56,7 +57,7 @@ function panelPreloadPath(): string {
 }
 function openPanel() {
   if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
-  panel = new BrowserWindow({ width: 780, height: 620, minWidth: 560, minHeight: 480, title: "ZCode Canvas 外观中心", webPreferences: { preload: panelPreloadPath(), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+  panel = new BrowserWindow({ width: 640, height: 620, minWidth: 520, minHeight: 480, title: "ZCode Canvas 外观中心", webPreferences: { preload: panelPreloadPath(), contextIsolation: true, nodeIntegration: false, sandbox: true } });
   panel.loadFile(panelPath("panel.html"));
   panel.on("closed", () => { panel = null; });
 }
@@ -77,35 +78,16 @@ function scheduleMenuInjection() {
   for (const delay of [250, 1000, 2500]) setTimeout(injectMenu, delay);
 }
 
-function readPanelData() {
-  const config = readConfig(home);
-  const imported = join(home, "imports", "wallpaper");
-  const wallpapers = existsSync(imported)
-    ? readdirSync(imported)
-        .filter((f) => /\.(png|jpe?g|webp|avif|svg)$/i.test(f))
-        .filter((f) => statSync(join(imported, f), { throwIfNoEntry: false })?.isFile())
-    : [];
-  const themes = listThemes(home).map((entry) => ({ id: entry.id, name: entry.manifest.name, builtin: entry.builtin }));
-  return { config, wallpapers, themes };
-}
-
-function isImportedWallpaper(name: string): boolean {
-  return name.length > 0 && name === name.split(/[\\/]/).pop() && /^[^<>:"/\\|?*]+$/.test(name);
-}
-
-function importedWallpaperPath(name: string): string | null {
-  if (!isImportedWallpaper(name)) return null;
-  const root = resolve(home, "imports", "wallpaper");
-  const candidate = resolve(root, name);
-  if (!candidate.startsWith(`${root}${process.platform === "win32" ? "\\" : "/"}`)) return null;
-  try {
-    const realRoot = realpathSync(root);
-    const realCandidate = realpathSync(candidate);
-    if (!realCandidate.startsWith(`${realRoot}${process.platform === "win32" ? "\\" : "/"}`)) return null;
-  } catch {
-    return null;
-  }
-  return candidate;
+/** The only way a wallpaper enters the config: a file chosen in the native dialog. */
+async function pickWallpaperFile(): Promise<string | null> {
+  const options: OpenDialogOptions = {
+    title: "选择壁纸图片",
+    properties: ["openFile"],
+    filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "avif", "svg"] }],
+  };
+  const owner = panel && !panel.isDestroyed() ? panel : undefined;
+  const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
+  return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!;
 }
 
 function consumeOpenRequest() {
@@ -119,13 +101,6 @@ function consumeOpenRequest() {
   openPanel();
 }
 
-function writeConfigAtomic(config: ReturnType<typeof readConfig>) {
-  mkdirSync(home, { recursive: true });
-  const target = paths.config(home);
-  const tmp = `${target}.tmp-${process.pid}`;
-  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, target);
-}
 /**
  * Windows switches between acrylic/mica/tabbed via setBackgroundMaterial. macOS already ships with
  * "under-window" vibrancy, so only "none" (turning it off) differs from the official look. Linux
@@ -162,56 +137,6 @@ function reload() {
   log(`reloaded (css ${state.css.length} bytes, material ${state.material})`);
 }
 
-function registerPanelHandlers() {
-  try {
-    ipcMain.handle(CHANNEL_PANEL_GET, () => readPanelData());
-  } catch (error) {
-    log(`panel get handler unavailable: ${String(error)}`);
-  }
-  try {
-    ipcMain.handle(CHANNEL_PANEL_APPLY, (_event, value: unknown) => {
-      if (!value || typeof value !== "object") throw new Error("invalid panel request");
-      const input = value as { theme?: unknown; wallpaper?: unknown; fit?: unknown; blur?: unknown; dim?: unknown };
-      const config = readConfig(home);
-      if (input.theme === null || typeof input.theme === "string") {
-        if (input.theme === null || input.theme === "") config.theme = null;
-        else if (listThemes(home).some((entry) => entry.id === input.theme)) config.theme = input.theme;
-        else throw new Error("unknown theme");
-      }
-      if (input.wallpaper === null) {
-        config.wallpaper = null;
-      } else if (typeof input.wallpaper === "string" && input.wallpaper) {
-        const candidate = importedWallpaperPath(input.wallpaper);
-        if (!candidate || !existsSync(candidate) || !statSync(candidate).isFile()) throw new Error("wallpaper is not imported");
-        config.wallpaper = { ...(config.wallpaper ?? {}), image: candidate };
-      }
-      if (input.fit !== undefined || input.blur !== undefined || input.dim !== undefined) {
-        const wallpaper = { ...(config.wallpaper ?? {}) };
-        if (input.fit !== undefined) {
-          if (!["cover", "contain", "fill", "tile", "center"].includes(String(input.fit))) throw new Error("invalid wallpaper fit");
-          wallpaper.fit = input.fit as typeof wallpaper.fit;
-        }
-        if (input.blur !== undefined) {
-          const n = Number(input.blur);
-          if (!Number.isFinite(n) || n < 0 || n > 200) throw new Error("invalid wallpaper blur");
-          wallpaper.blur = n;
-        }
-        if (input.dim !== undefined) {
-          const n = Number(input.dim);
-          if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error("invalid wallpaper dim");
-          wallpaper.dim = n;
-        }
-        config.wallpaper = wallpaper;
-      }
-      writeConfigAtomic(config);
-      reload();
-      return { ok: true };
-    });
-  } catch (error) {
-    log(`panel apply handler unavailable: ${String(error)}`);
-  }
-}
-
 try {
   // Only the preload of ZCode's main window asks, so this also identifies the windows to style.
   ipcMain.on(CHANNEL_GET, (event) => {
@@ -225,7 +150,7 @@ try {
     }
   });
 
-  registerPanelHandlers();
+  registerPanelHandlers({ home, ipc: ipcMain, log, pickWallpaperFile, reload });
 
   app.once("ready", () => {
     try {
