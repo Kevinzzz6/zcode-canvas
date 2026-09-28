@@ -2,6 +2,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { chownSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { psLiteral, startDetachedPowerShell } from "../shared/windows.ts";
 import { BOOT_PATH, inspect, isPatchCurrent, readArchive, readFile, recordHashIsSound, writePatched, writeRestored, type PatchState } from "./asar.ts";
 
 export interface Installation {
@@ -264,6 +265,43 @@ export class ResignError extends Error {
  *  a string = failure detail, reported by the caller once the replacement itself has succeeded. */
 type Resigner = (install: Installation) => string | null;
 
+/** Starts the detached pending-swap helper. Overridable so the update rescue can launch it in a
+ *  way that survives an installer's running-app sweep. */
+export type SwapLauncher = (cliPath: string, installDir: string, id: string) => void;
+
+const directSwapLauncher: SwapLauncher = (cliPath, installDir, id) => {
+  spawn(process.execPath, [cliPath, "__swap", installDir, id], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  }).unref();
+};
+
+/**
+ * A swap helper launched through System32 PowerShell: the PowerShell parent lives outside the
+ * install dir (an update installer kills every process running from there), and the
+ * ZCode-running-as-Node child only starts once the installer is long done. Used by the update
+ * rescue, where a direct child of the rescue helper would still be an install-dir process.
+ * Detached PowerShell needs the Start-Process two-stage launch (see startDetachedPowerShell),
+ * so the small delay script is staged next to the CLI copy.
+ */
+export function powerShellSwapLauncher(rescueExe: string): SwapLauncher {
+  return (cliPath, installDir, id) => {
+    try {
+      const scriptFile = join(dirname(cliPath), "canvas-swap-wait.ps1");
+      const script =
+        `Start-Sleep -Seconds 10\n` +
+        `$env:ELECTRON_RUN_AS_NODE = '1'\n` +
+        `& ${psLiteral(rescueExe)} ${psLiteral(cliPath)} '__swap' ${psLiteral(installDir)} ${id}\n`;
+      writeFileSync(scriptFile, script, "utf8");
+      startDetachedPowerShell(scriptFile);
+    } catch {
+      // Best effort: a direct child still works unless another update sweeps the install dir.
+      directSwapLauncher(cliPath, installDir, id);
+    }
+  };
+}
+
 const pendingPath = (install: Installation) => `${install.asar}.canvas-pending`;
 
 /**
@@ -272,7 +310,7 @@ const pendingPath = (install: Installation) => `${install.asar}.canvas-pending`;
  * detached helper swaps it in once ZCode has exited. POSIX renames over open files fine, so any
  * failure there is a real permission problem that the caller (running under sudo) must solve.
  */
-function replaceArchive(install: Installation, prepared: string, cliPath: string, resign: Resigner): ReplaceOutcome {
+function replaceArchive(install: Installation, prepared: string, cliPath: string, resign: Resigner, swapLauncher: SwapLauncher = directSwapLauncher): ReplaceOutcome {
   const pending = pendingPath(install);
   rmSync(pending, { force: true });
   rmSync(`${pending}.json`, { force: true });
@@ -290,11 +328,7 @@ function replaceArchive(install: Installation, prepared: string, cliPath: string
   const stat = statSync(install.asar);
   const record: PendingRecord = { id: `${process.pid}-${Date.now()}`, asarSize: stat.size, asarMtimeMs: stat.mtimeMs };
   writeFileSync(`${pending}.json`, JSON.stringify(record));
-  spawn(process.execPath, [cliPath, "__swap", install.dir, record.id], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-  }).unref();
+  swapLauncher(cliPath, install.dir, record.id);
   return "pending";
 }
 
@@ -359,6 +393,18 @@ export interface RescueTuning {
   deadlineMs?: number;
 }
 
+/**
+ * Which rescue errors mean "this can never work here" rather than "try again in a moment". A
+ * permission error on POSIX (e.g. /opt/ZCode owned by root) is permanent: waiting the full
+ * deadline for it helps nobody. On Windows EPERM/EACCES stay retryable — there they are sharing
+ * violations while the installer or the relaunched app still holds the archive.
+ */
+export function isPermanentRescueError(error: unknown, platform: NodeJS.Platform = process.platform): boolean {
+  if (error instanceof ResignError) return true;
+  const code = (error as NodeJS.ErrnoException).code;
+  return platform !== "win32" && (code === "EACCES" || code === "EPERM" || code === "EROFS");
+}
+
 function tryReadState(install: Installation): PatchState | null {
   try {
     return readState(install);
@@ -378,12 +424,13 @@ function statFingerprint(file: string): string {
 }
 
 /**
- * Body of the update-rescue helper the runtime spawns as ZCode quits over a staged update
- * (`__rescue`). The installer replaces app.asar shortly after the app exits, removing the patch;
- * this waits for the new archive to settle and re-applies it. No decision — not even "still
- * patched, done" — happens before the archive has held still for several polls, because the
- * installer may not have reached app.asar yet when the helper starts. A pending apply/restore swap
- * owns the archive and wins over the rescue.
+ * Body of the update-rescue helper the runtime hands over to as an update installs (`__rescue`).
+ * On Windows a PowerShell waiter starts it only after the installer has exited; on macOS/Linux it
+ * starts at quit. The installer replaces app.asar wholesale, removing the patch; this waits for
+ * the new archive to settle and re-applies it. No decision — not even "still patched, done" —
+ * happens before the archive has held still for a good while (an installer, a UAC prompt or
+ * ZCode's own child-process shutdown can all still be ahead of the rewrite). A pending
+ * apply/restore swap owns the archive and wins over the rescue.
  */
 export async function runUpdateRescue(
   installDir: string,
@@ -406,8 +453,9 @@ export async function runUpdateRescue(
     ? (JSON.parse(readFileSync(versionFile, "utf8")) as { version: string }).version
     : "rescue";
   const pollMs = tuning.pollMs ?? 1500;
-  const settlePolls = tuning.settlePolls ?? 8;
+  const settlePolls = tuning.settlePolls ?? 20;
   const deadlineMs = tuning.deadlineMs ?? 15 * 60 * 1000;
+  const swapLauncher = process.platform === "win32" ? powerShellSwapLauncher(process.execPath) : undefined;
   const startedAt = Date.now();
 
   let quiet = 0;
@@ -428,15 +476,19 @@ export async function runUpdateRescue(
       // unpatched one gets patched.
       if (state) {
         try {
-          const outcome = applyPatch(install, canvasVersion, cliPath);
+          const outcome = applyPatch(install, canvasVersion, cliPath, adHocResign, swapLauncher);
           log(`update rescue: re-applied the patch to ${install.asar} (${outcome})`);
           return "re-patched";
         } catch (error) {
-          if (error instanceof ResignError) {
-            log(`update rescue: ${error.message}`);
+          if (isPermanentRescueError(error)) {
+            const code = (error as NodeJS.ErrnoException).code;
+            log(
+              `update rescue: cannot write ${install.asar} (${code ?? String(error)}); ` +
+                "this install dir needs elevated rights — run `sudo zcode-canvas apply` after the update",
+            );
             return "failed";
           }
-          // Held by the quitting ZCode or the running installer, or written under us: keep waiting.
+          // Held by the relaunched ZCode or a straggler handle, or written under us: keep waiting.
           if (String(error) !== lastError) {
             lastError = String(error);
             log(`update rescue: waiting for app.asar (${String(error)})`);
@@ -464,7 +516,7 @@ function verifyPatched(file: string, expectPatched: boolean) {
   if (state.patched !== expectPatched) throw new Error(`verification failed for ${file}`);
 }
 
-export function applyPatch(install: Installation, canvasVersion: string, cliPath: string, resign: Resigner = adHocResign): ReplaceOutcome | "unchanged" {
+export function applyPatch(install: Installation, canvasVersion: string, cliPath: string, resign: Resigner = adHocResign, swapLauncher: SwapLauncher = directSwapLauncher): ReplaceOutcome | "unchanged" {
   const archive = readArchive(install.asar);
   const state = inspect(archive);
   // "Unchanged" needs the bootstrap this build would write, the patch format it stamps, and a
@@ -478,7 +530,7 @@ export function applyPatch(install: Installation, canvasVersion: string, cliPath
   try {
     writePatched(readArchive(install.asar), prepared, canvasVersion);
     verifyPatched(prepared, true);
-    return replaceArchive(install, prepared, cliPath, resign);
+    return replaceArchive(install, prepared, cliPath, resign, swapLauncher);
   } finally {
     rmSync(prepared, { force: true });
   }

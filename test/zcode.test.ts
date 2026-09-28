@@ -8,6 +8,7 @@ import {
   applyPatch,
   deployRuntime,
   exeName,
+  isPermanentRescueError,
   readState,
   removePatch,
   ResignError,
@@ -94,6 +95,21 @@ test("sudoOwner resolves the invoking user, never root, and never without eviden
   assert.equal(sudoOwner({ SUDO_USER: "alice" }), null);
   assert.equal(sudoOwner({ SUDO_USER: "alice", SUDO_UID: "not-a-number", SUDO_GID: "10" }), null);
   assert.equal(sudoOwner({ SUDO_USER: "alice", SUDO_UID: "0", SUDO_GID: "0" }, { uid: 0, gid: 0 }), null);
+});
+
+test("rescue errors are permanent only where no retry can ever help", () => {
+  const errno = (code: string) => Object.assign(new Error("boom"), { code });
+  // POSIX: a root-owned install dir must fail fast, not spin for the whole deadline.
+  assert.equal(isPermanentRescueError(errno("EACCES"), "linux"), true);
+  assert.equal(isPermanentRescueError(errno("EPERM"), "darwin"), true);
+  assert.equal(isPermanentRescueError(errno("EROFS"), "linux"), true);
+  // Windows: those same codes are sharing violations while an installer/app still holds the file.
+  assert.equal(isPermanentRescueError(errno("EACCES"), "win32"), false);
+  assert.equal(isPermanentRescueError(errno("EBUSY"), "linux"), false);
+  assert.equal(isPermanentRescueError(errno("EBUSY"), "win32"), false);
+  // Parse races and re-sign failures are their own categories.
+  assert.equal(isPermanentRescueError(new Error("bad header"), "linux"), false);
+  assert.equal(isPermanentRescueError(new ResignError(fakeInstall(), "detail"), "win32"), true);
 });
 
 test("update rescue: a quiet, still-patched archive means an ordinary quit", async () => {
