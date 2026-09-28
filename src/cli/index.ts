@@ -18,6 +18,7 @@ import {
   SCHEMA_URL,
   STARTUP_ANIMATIONS,
   WALLPAPER_FITS,
+  writeConfigAtomic,
   type CanvasConfig,
   type ThemeEntry,
   type ThemeManifest,
@@ -111,8 +112,7 @@ function parseArgs(argv: string[]): Args {
 }
 
 function writeConfig(config: CanvasConfig) {
-  mkdirSync(home, { recursive: true });
-  writeFileSync(paths.config(home), `${JSON.stringify(config, null, 2)}\n`);
+  writeConfigAtomic(home, config);
   // Under `sudo zcode-canvas apply` this runs as root; hand the file back to the invoking user.
   restoreOwnership(home);
 }

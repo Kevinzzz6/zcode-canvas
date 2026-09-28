@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
@@ -170,6 +170,15 @@ export function readConfig(home: string): CanvasConfig {
   const file = paths.config(home);
   if (!existsSync(file)) return { ...DEFAULT_CONFIG };
   return { ...DEFAULT_CONFIG, ...(JSON.parse(readFileSync(file, "utf8")) as CanvasConfig) };
+}
+
+/** Replace config.json in one rename, so a reader never sees a half-written file. */
+export function writeConfigAtomic(home: string, config: CanvasConfig): void {
+  mkdirSync(home, { recursive: true });
+  const target = paths.config(home);
+  const tmp = `${target}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, target);
 }
 
 /** User themes shadow built-in themes with the same id. */
