@@ -49,11 +49,11 @@
       "description": "Corner radius scale: 1 = official, 0 = square. rounded-full shapes stay round."
     },
     "vars": {
-      "type": "object",
-      "description": "Other CSS custom properties for both modes, optionally refined under dark / light.",
+      "type": ["object", "null"],
+      "description": "Other CSS custom properties for both modes, optionally refined under dark / light. null clears them all; null under a mode clears that mode.",
       "properties": {
-        "dark": { "$ref": "#/$defs/customProperties" },
-        "light": { "$ref": "#/$defs/customProperties" }
+        "dark": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/customProperties" }] },
+        "light": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/customProperties" }] }
       },
       "patternProperties": { "^--[\\w-]+$": { "$ref": "#/$defs/cssValue" } },
       "additionalProperties": false

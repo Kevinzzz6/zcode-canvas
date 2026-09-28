@@ -62,10 +62,13 @@ export interface WallpaperLayer extends WallpaperSpec {
   light?: WallpaperSpec | null;
 }
 
-/** Custom properties for both modes (keys start with `--`), optionally refined per mode. */
+/**
+ * Custom properties for both modes (keys start with `--`), optionally refined per mode; `"dark": null`
+ * clears the dark-mode vars only.
+ */
 export type VarsSpec = { [property: `--${string}`]: string } & {
-  dark?: Record<string, string>;
-  light?: Record<string, string>;
+  dark?: Record<string, string> | null;
+  light?: Record<string, string> | null;
 };
 
 /** Everything that defines a look. Shared by theme manifests and the user config. */
@@ -279,7 +282,11 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
     if (layer.vars === null) for (const mode of MODES) vars[mode] = {};
     else if (layer.vars) {
       const split = splitModes(layer.vars);
-      for (const mode of MODES) Object.assign(vars[mode], split[mode]);
+      for (const mode of MODES) {
+        const own = split[mode];
+        if (own === null) vars[mode] = {};
+        else Object.assign(vars[mode], own);
+      }
     }
     if (layer.wallpaper === null) for (const mode of MODES) wallpaper[mode] = null;
     else if (layer.wallpaper) {

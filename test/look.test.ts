@@ -171,6 +171,25 @@ test("vars apply to both modes, per-mode entries refine them, and bad names are 
   assert.match(warnings[0]!, /vars\.dark\.not-a-var/);
 });
 
+test("vars: null clears every mode; vars.dark / vars.light null clear only that mode", () => {
+  const t = theme({ name: "T", vars: { "--gap": "4px", dark: { "--edge": "2px" }, light: { "--edge": "1px" } } });
+  assert.deepEqual(resolveLook({ vars: null }, t, "/home").vars, { dark: {}, light: {} });
+
+  const noDark = resolveLook({ vars: { dark: null } }, t, "/home").vars;
+  assert.deepEqual(noDark.dark, {});
+  assert.deepEqual(noDark.light, { "--gap": "4px", "--edge": "1px" });
+
+  const noLight = resolveLook({ vars: { "--pad": "2px", light: null } }, t, "/home").vars;
+  assert.deepEqual(noLight.dark, { "--gap": "4px", "--edge": "2px", "--pad": "2px" });
+  assert.deepEqual(noLight.light, {});
+
+  const schema = JSON.parse(readFileSync(fileURLToPath(new URL("../schema/theme.schema.json", import.meta.url)), "utf8")) as object;
+  const validate = new Ajv2020({ allErrors: true }).compile(schema);
+  for (const vars of [null, { dark: null }, { "--gap": "4px", light: null }]) {
+    assert.ok(validate({ format: 1, name: "T", vars }), JSON.stringify(validate.errors));
+  }
+});
+
 test("colors warns about custom properties that are not color tokens", () => {
   const { warnings } = buildCss(resolveLook({ colors: { dark: { "--radius-xl": "0", "--color-panel": "#000" } } }, null, "/home"));
   assert.deepEqual(warnings, ["colors.dark.--radius-xl is not a color token; move it to vars"]);
