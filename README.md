@@ -72,7 +72,7 @@ zcode-canvas restore                         # 还原官方 app.asar
 | `endfield` | 终末地官网风格：谷地黄强调、等高线地形壁纸、全直角；暗色墨黑底，亮色奶油纸底；改编自 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield) |
 | `endfield-wuling` | 同一风格的武陵青版本，同样适配暗色和亮色 |
 
-自己写主题请看 [docs/theme-format.md](docs/theme-format.md)。主题格式目前是 format 1，之后只做向后兼容的新增；[schema/theme.schema.json](schema/theme.schema.json) 可以让编辑器补全和校验 `theme.json`。
+自己写主题请看 [docs/theme-format.md](docs/theme-format.md)。主题格式目前是 format 1，之后只做向后兼容的新增；[schema/theme.schema.json](schema/theme.schema.json) 可以让编辑器补全和校验 `theme.json`，`zcode-canvas use` / `themes` 也会按同一份 schema 完整校验第三方主题。
 
 ## ZCode 更新之后
 

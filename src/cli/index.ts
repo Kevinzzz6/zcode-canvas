@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { themeSchemaProblems } from "./schema.ts";
 import { buildCss } from "../shared/css.ts";
 import {
   canvasHome,
@@ -17,6 +18,7 @@ import {
   STARTUP_ANIMATIONS,
   WALLPAPER_FITS,
   type CanvasConfig,
+  type ThemeEntry,
   type ThemeManifest,
   type WallpaperLayer,
 } from "../shared/look.ts";
@@ -110,7 +112,7 @@ function writeConfig(config: CanvasConfig) {
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][\w-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
+const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
 const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|startup)$/;
 
 function parseValue(key: string, raw: string): unknown {
@@ -159,6 +161,11 @@ function revealInFileManager(path: string) {
   spawn(tool, [path], { detached: true, stdio: "ignore" }).unref();
 }
 
+/** Everything wrong with a theme's manifest: the shallow checks plus the full schema. */
+function themeProblems(entry: ThemeEntry): string[] {
+  return [...checkManifest(entry.id, entry.manifest), ...themeSchemaProblems(packageRoot, entry.manifest)];
+}
+
 function status(explicit?: string) {
   const install = locateZCode(explicit);
   const state = readState(install);
@@ -175,7 +182,8 @@ function status(explicit?: string) {
   console.log(`ZCode 运行中     ${isZCodeRunning(install) ? "是" : "否"}`);
   console.log(`Canvas           ${config.enabled === false ? "已关闭" : "开启"}`);
   console.log(`当前主题         ${config.theme ?? "（无）"}`);
-  for (const warning of warnings) console.log(`! ${warning}`);
+  const active = config.theme ? listThemes(home, [packagedThemes]).find((t) => t.id === config.theme) : undefined;
+  for (const warning of [...warnings, ...(active ? themeProblems(active) : [])]) console.log(`! ${warning}`);
   if (!state.patched) console.log("\n运行 `zcode-canvas apply` 安装。若 ZCode 刚更新过，也需要重新 apply。");
 }
 
@@ -212,7 +220,7 @@ function themes() {
     const modes = theme.manifest.modes ?? MODES;
     const fit = modes.length === 1 ? (modes[0] === "dark" ? " [暗色]" : " [亮色]") : "";
     console.log(`${mark} ${theme.id.padEnd(18)} ${theme.manifest.name}${fit}${tag}${theme.manifest.description ? ` — ${theme.manifest.description}` : ""}`);
-    for (const warning of checkManifest(theme.id, theme.manifest)) console.log(`    ! ${warning}`);
+    for (const problem of themeProblems(theme)) console.log(`    ! ${problem}`);
   }
   console.log(`\n自定义主题目录: ${paths.userThemes(home)}`);
 }
@@ -222,7 +230,10 @@ function use(id: string | undefined) {
   const config = readConfig(home);
   if (id === "none") config.theme = null;
   else {
-    if (!listThemes(home, [packagedThemes]).some((t) => t.id === id)) throw new Error(`没有主题 "${id}"，运行 \`zcode-canvas themes\` 查看。`);
+    const entry = listThemes(home, [packagedThemes]).find((t) => t.id === id);
+    if (!entry) throw new Error(`没有主题 "${id}"，运行 \`zcode-canvas themes\` 查看。`);
+    const problems = themeProblems(entry);
+    if (problems.length) throw new Error(`主题 "${id}" 的 theme.json 未通过校验:\n  - ${problems.join("\n  - ")}`);
     config.theme = id;
   }
   writeConfig(config);

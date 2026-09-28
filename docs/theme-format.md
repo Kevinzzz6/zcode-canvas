@@ -141,7 +141,7 @@ my-theme/
 | 强调 | `primary`, `primary-foreground`, `brand`, `accent`, `ring` |
 | 终端 | `terminal-bg`, `terminal-fg`, `terminal-cursor`, `terminal-*` |
 
-`colors` 只放颜色 token。在里面写 `--radius-xl` 这类别的自定义属性仍然会生效，但会得到警告，请改用 `radius` 或 `vars`。
+`colors` 只放颜色 token，键只能是 token 名（`sidebar` 或 `--color-sidebar`，小写字母、数字和 `-`）。在里面写 `--radius-xl` 这类其他自定义属性会被忽略并给出警告，请改用 `radius` 或 `vars`。
 
 ## 圆角
 
@@ -174,12 +174,21 @@ ZCode 在首帧之后才给页面加上亮色 / 暗色的 class，启动画面�
 
 ## 安全限制
 
-颜色和 CSS 值里不能包含 `;`、`{`、`}`、`<`、`>`、`url(`、`@import`，否则这一项会被忽略，并在 `~/.zcode-canvas/runtime.log` 里记录警告。图片只能通过 `wallpaper.image`（含 `wallpaper.dark.image` / `wallpaper.light.image`）和 `startup.logo` 引用本地文件，主题无法加载远程资源。Canvas 不接受任意 CSS；需要新的界面能力时，会以白名单字段的形式加入格式。
+主题值不是过滤出来的，而是按字段限定语法生成的；`schema/theme.schema.json` 里的规则与运行时完全一致（测试保证两者同步）：
+
+- 颜色字段（`colors`、`accent`、`wallpaper.overlay`）：十六进制、命名颜色和颜色函数 `rgb()` / `hsl()` / `oklch()` / `color-mix()` 等；
+- `startup.background`：颜色，外加 `linear-gradient()` 等渐变函数；
+- `wallpaper.position`：方位词、长度、百分比和 `calc()`；
+- `vars` 的值最宽松：还允许引号（字体栈）和 `var()` 引用，但函数白名单相同。
+
+所有值都不能包含 `;` `{` `}` `<` `>` `@`、反斜杠、引号（`vars` 除外）或控制字符，函数名用小写；函数调用只允许白名单里的名字。因此 `ur\6c(...)`、`image-set(...)` 这类绕过写法和 `url()` 一样会被拒绝。不合规的项被忽略，并在 `~/.zcode-canvas/runtime.log` 里记录警告。`colors` 的键只接受颜色 token 名。图片只能通过 `wallpaper.image`（含 `wallpaper.dark.image` / `wallpaper.light.image`）和 `startup.logo` 引用本地文件，主题无法加载远程资源。Canvas 不接受任意 CSS；需要新的界面能力时，会以白名单字段的形式加入格式。
+
+`zcode-canvas use` 和 `themes` 还会按同一份 schema 对 `theme.json` 做完整结构校验（嵌套字段的类型、枚举、未知键），不合格的主题无法启用；运行时则保持宽容，只记录警告，保证 ZCode 总能启动。
 
 ## 调试
 
 ```sh
-zcode-canvas themes   # 列出主题，并显示每个主题的格式警告
+zcode-canvas themes   # 列出主题，并显示每个主题的格式与 schema 校验警告
 zcode-canvas css      # 打印当前生成的 CSS
 ```
 
