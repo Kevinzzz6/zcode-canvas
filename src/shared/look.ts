@@ -102,7 +102,15 @@ export interface ThemeEntry {
 }
 
 export function canvasHome(env: NodeJS.ProcessEnv = process.env): string {
-  return env.ZCODE_CANVAS_HOME || join(homedir(), ".zcode-canvas");
+  if (env.ZCODE_CANVAS_HOME) return env.ZCODE_CANVAS_HOME;
+  // `sudo zcode-canvas apply` must still install into the invoking user's home: ZCode reads it as
+  // that user, not as root. Windows has no sudo, so SUDO_USER never appears there.
+  const sudoUser = env.SUDO_USER;
+  if (sudoUser && sudoUser !== "root" && (typeof process.getuid !== "function" || process.getuid() === 0)) {
+    const homes = process.platform === "darwin" ? "/Users" : "/home";
+    return join(homes, sudoUser, ".zcode-canvas");
+  }
+  return join(homedir(), ".zcode-canvas");
 }
 
 export const paths = {

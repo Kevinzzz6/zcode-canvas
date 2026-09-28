@@ -1,6 +1,7 @@
-import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { BOOT_PATH, bootSource, inspect, readArchive, readFile, writePatched, writeRestored, type PatchState } from "./asar.ts";
 
 export interface Installation {
@@ -9,11 +10,31 @@ export interface Installation {
   asar: string;
 }
 
-function asInstallation(dir: string | undefined | null): Installation | null {
-  if (!dir) return null;
-  const exe = join(dir, "ZCode.exe");
-  const asar = join(dir, "resources", "app.asar");
+/** The packaged executable name per platform: ZCode.exe (win), zcode (linux), ZCode (darwin). */
+export function exeName(platform: NodeJS.Platform): string {
+  return platform === "win32" ? "ZCode.exe" : platform === "linux" ? "zcode" : "ZCode";
+}
+
+/** Resolves an install dir to its layout. On darwin the dir is the ZCode.app bundle (or its parent). */
+export function installationAt(input: string | undefined | null, platform: NodeJS.Platform = process.platform): Installation | null {
+  if (!input) return null;
+  const dir = platform === "darwin" && basename(input) !== "ZCode.app" ? join(input, "ZCode.app") : input;
+  const exe = platform === "darwin" ? join(dir, "Contents", "MacOS", "ZCode") : join(dir, exeName(platform));
+  const asar = platform === "darwin" ? join(dir, "Contents", "Resources", "app.asar") : join(dir, "resources", "app.asar");
   return existsSync(exe) && existsSync(asar) ? { dir, exe, asar } : null;
+}
+
+/** AppImages mount read-only, so their app.asar cannot be patched; the rpm/deb/pacman packages can. */
+function isAppImageInstall(install: Installation): boolean {
+  return install.asar.includes("/.mount_") || /\.appimage$/i.test(install.dir);
+}
+
+function findAppImage(): string | undefined {
+  for (const dir of [join(homedir(), "Applications"), join(homedir(), ".local", "bin")]) {
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir).sort()) if (/^zcode.*\.appimage$/i.test(name)) return join(dir, name);
+  }
+  return undefined;
 }
 
 function registryInstallDirs(): string[] {
@@ -35,39 +56,64 @@ function registryInstallDirs(): string[] {
   return dirs;
 }
 
-/** Candidates in order: explicit flag, env overrides, the running ZCode (it exports its own dir), registry, defaults. */
-export function locateZCode(explicit?: string): Installation {
-  if (explicit) {
-    const found = asInstallation(explicit);
-    if (!found) throw new Error(`No ZCode installation at ${explicit} (expected ZCode.exe and resources\\app.asar)`);
-    return found;
+/** The dir behind a `zcode` executable on PATH (electron-builder symlinks /usr/bin/zcode -> /opt/ZCode/zcode). */
+function dirFromPathLookup(): string | undefined {
+  try {
+    const found = execFileSync("which", ["zcode"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return found ? dirname(realpathSync(found)) : undefined;
+  } catch {
+    return undefined;
   }
-  const candidates = [
-    process.env.ZCODE_CANVAS_ZCODE_DIR,
+}
+
+function candidatesFor(platform: NodeJS.Platform): string[] {
+  const explicit = process.env.ZCODE_CANVAS_ZCODE_DIR;
+  if (platform === "linux")
+    return [explicit, "/opt/ZCode", dirFromPathLookup()].filter((d): d is string => !!d);
+  if (platform === "darwin") return [explicit, "/Applications", join(homedir(), "Applications")].filter((d): d is string => !!d);
+  return [
+    explicit,
     process.env.ZCODE_WINDOWS_APP_INSTALL_DIR,
     ...registryInstallDirs(),
     process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, "Programs", "ZCode"),
     process.env.ProgramFiles && join(process.env.ProgramFiles, "ZCode"),
-  ];
-  for (const dir of candidates) {
-    const found = asInstallation(dir);
-    if (found) return found;
+  ].filter((d): d is string => !!d);
+}
+
+function notFoundMessage(): string {
+  if (process.platform === "linux") {
+    const appImage = findAppImage();
+    return (
+      "Could not find a ZCode rpm/deb/pacman installation (looked at /opt/ZCode and the `zcode` executable on PATH)." +
+      (appImage ? ` AppImage installs are read-only and not supported (${appImage}); on Fedora install the .rpm package instead.` : "") +
+      " Pass --zcode <install dir> to override."
+    );
   }
-  throw new Error("Could not find ZCode. Pass --zcode <install dir>.");
+  if (process.platform === "darwin")
+    return "Could not find ZCode.app (looked at /Applications and ~/Applications). Pass --zcode <ZCode.app or its parent dir>.";
+  return "Could not find ZCode. Pass --zcode <install dir>.";
+}
+
+/** Candidates in order: explicit flag, env overrides, the running ZCode (Windows: it exports its own dir), defaults. */
+export function locateZCode(explicit?: string): Installation {
+  const found = installationAt(explicit) ?? (!explicit ? candidatesFor(process.platform).map((dir) => installationAt(dir)).find(Boolean) ?? null : null);
+  if (!found) throw new Error(explicit ? `No ZCode installation at ${explicit}` : notFoundMessage());
+  if (isAppImageInstall(found)) throw new Error(`AppImage installs are read-only and cannot be patched (${found.dir}); on Fedora install the .rpm package instead.`);
+  return found;
 }
 
 export function readState(install: Installation): PatchState {
   return inspect(readArchive(install.asar));
 }
 
-export function isZCodeRunning(install: Installation): boolean {
+function windowsZCodeRunning(exe: string): boolean {
   try {
     const output = execFileSync(
       "powershell",
       [
         "-NoProfile",
         "-Command",
-        `(Get-Process -Name ZCode -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${install.exe.replace(/'/g, "''")}' } | Measure-Object).Count`,
+        `(Get-Process -Name ZCode -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${exe.replace(/'/g, "''")}' } | Measure-Object).Count`,
       ],
       { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
     );
@@ -75,6 +121,51 @@ export function isZCodeRunning(install: Installation): boolean {
   } catch {
     return false;
   }
+}
+
+/** Matches /proc/<pid>/exe against the install's executable; falls back to pgrep when /proc is unavailable. */
+function linuxZCodeRunning(exe: string): boolean {
+  let target = exe;
+  try {
+    target = realpathSync(exe);
+  } catch {
+    // Keep the literal path; the executable may have been removed with the package.
+  }
+  try {
+    for (const pid of readdirSync("/proc")) {
+      if (!/^\d+$/.test(pid)) continue;
+      let link: string;
+      try {
+        link = readlinkSync(join("/proc", pid, "exe"));
+      } catch {
+        continue; // other users' processes are not readable
+      }
+      if (link === target || link === `${target} (deleted)`) return true;
+    }
+  } catch {
+    // No /proc (non-standard); fall through to pgrep.
+  }
+  try {
+    execFileSync("pgrep", ["-x", "zcode"], { stdio: ["ignore", "pipe", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function macZCodeRunning(): boolean {
+  try {
+    execFileSync("pgrep", ["-x", "ZCode"], { stdio: ["ignore", "pipe", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isZCodeRunning(install: Installation): boolean {
+  if (process.platform === "linux") return linuxZCodeRunning(install.exe);
+  if (process.platform === "darwin") return macZCodeRunning();
+  return windowsZCodeRunning(install.exe);
 }
 
 /** Copies the runtime and built-in themes into the Canvas home. Safe while ZCode runs; takes effect on next launch. */
@@ -106,8 +197,10 @@ interface PendingRecord {
 const pendingPath = (install: Installation) => `${install.asar}.canvas-pending`;
 
 /**
- * Moves `prepared` over app.asar. While ZCode runs the archive is locked; then the file is parked as
- * app.asar.canvas-pending and a detached helper swaps it in once ZCode has exited.
+ * Moves `prepared` over app.asar. Only Windows locks the archive while ZCode runs (EBUSY) and denies
+ * writes in protected dirs (EPERM/EACCES); there the file is parked as app.asar.canvas-pending and a
+ * detached helper swaps it in once ZCode has exited. POSIX renames over open files fine, so any
+ * failure there is a real permission problem that the caller (running under sudo) must solve.
  */
 function replaceArchive(install: Installation, prepared: string, cliPath: string): ReplaceOutcome {
   const pending = pendingPath(install);
@@ -115,10 +208,11 @@ function replaceArchive(install: Installation, prepared: string, cliPath: string
   rmSync(`${pending}.json`, { force: true });
   try {
     renameSync(prepared, install.asar);
+    adHocResign(install);
     return "replaced";
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EBUSY" && code !== "EPERM" && code !== "EACCES") throw error;
+    if (process.platform !== "win32" || (code !== "EBUSY" && code !== "EPERM" && code !== "EACCES")) throw error;
   }
   renameSync(prepared, pending);
   const stat = statSync(install.asar);
@@ -132,9 +226,20 @@ function replaceArchive(install: Installation, prepared: string, cliPath: string
   return "pending";
 }
 
+/**
+ * macOS code signatures seal app.asar, so any patch — or restore, which also changes bytes under the
+ * current signature — must be followed by an ad-hoc re-sign or Gatekeeper will call the app damaged.
+ */
+function adHocResign(install: Installation) {
+  if (process.platform !== "darwin") return;
+  const result = spawnSync("codesign", ["--force", "--deep", "--sign", "-", install.dir], { encoding: "utf8" });
+  if (result.status !== 0)
+    console.warn(`! 重新签名失败，ZCode 可能拒绝启动。请手动执行: codesign --force --deep --sign - "${install.dir}"`);
+}
+
 /** Body of the detached helper started by replaceArchive(). */
 export async function runPendingSwap(installDir: string, id: string) {
-  const install = asInstallation(installDir);
+  const install = installationAt(installDir);
   if (!install) return;
   const pending = pendingPath(install);
   const deadline = Date.now() + 7 * 24 * 3600 * 1000;
