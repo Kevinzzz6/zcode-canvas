@@ -1,5 +1,18 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json",
+  "format": 1,
   "name": "Mica",
   "description": "保留官方配色，改用 Windows 11 Mica 材质（仅 Windows；其他平台效果等同 glass）",
-  "glass": { "material": "mica", "opacity": 0.5, "blur": 0 }
+  "author": "ZCode Canvas",
+  "version": "1.0.0",
+  "license": "MIT",
+  "modes": [
+    "dark",
+    "light"
+  ],
+  "glass": {
+    "material": "mica",
+    "opacity": 0.5,
+    "blur": 0
+  }
 }

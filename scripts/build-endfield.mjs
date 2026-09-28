@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Regenerate the artwork of the built-in `endfield` and `endfield-wuling` themes:
-//   themes/<id>/wallpaper.svg  contour terrain from the dsh-theme-endfield kernel, frozen at phase 0
-//   themes/<id>/logo.svg       the END / FIELD boot wordmark, typeset like that theme's loader plate
+//   themes/<id>/wallpaper-<mode>.svg  contour terrain from the dsh-theme-endfield kernel, frozen at phase 0
+//   themes/<id>/logo.svg              the END / FIELD boot wordmark, typeset like that theme's loader plate
 //
 //   node scripts/build-endfield.mjs [--seed <n>]
 //
@@ -28,20 +28,21 @@ const H = 900;
 // sits on a busy map.
 const FADE = { out: 0.18, low: 0.32, high: 0.84, in: 0.96, floor: 0.3 };
 
+const PAPER = { dark: "#101110", light: "#e8e8e2" };
+
+// Stroke colors are upstream's per palette and scheme (client.js contourStroke). Their alphas are
+// tuned for an opaque page; Canvas lays the UI over the wallpaper at glass.opacity, which washes
+// them out, so each is raised by the same factor per scheme (dark x1.5, light x1.25).
 const THEMES = [
   {
     id: "endfield",
-    paper: "#101110",
     accent: "#fff500",
-    // Upstream's composited-contrast-tuned strokes are for an opaque page; Canvas lays the UI
-    // over the wallpaper at glass.opacity, which washes them out, so they are raised to match.
-    stroke: { color: "#fff500", opacity: 0.3 },
+    stroke: { dark: { color: "#fff500", opacity: 0.3 }, light: { color: "#beaf00", opacity: 0.52 } },
   },
   {
     id: "endfield-wuling",
-    paper: "#e8e8e2",
     accent: "#14d0d0",
-    stroke: { color: "#14d0d0", opacity: 0.6 },
+    stroke: { dark: { color: "#14d0d0", opacity: 0.4 }, light: { color: "#14d0d0", opacity: 0.6 } },
   },
 ];
 
@@ -160,8 +161,7 @@ function contourPaths(seed) {
     .join("");
 }
 
-function wallpaper(theme, paths) {
-  const { paper, stroke } = theme;
+function wallpaper(paper, stroke, paths) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice">
 <defs>
 <linearGradient id="fade" x1="0" x2="1" y1="0" y2="0">
@@ -208,7 +208,9 @@ ${squares}
 const paths = contourPaths(SEED);
 for (const theme of THEMES) {
   const dir = join(root, "themes", theme.id);
-  writeFileSync(join(dir, "wallpaper.svg"), wallpaper(theme, paths));
+  for (const mode of ["dark", "light"]) {
+    writeFileSync(join(dir, `wallpaper-${mode}.svg`), wallpaper(PAPER[mode], theme.stroke[mode], paths));
+  }
   writeFileSync(join(dir, "logo.svg"), logo(theme));
 }
 console.log(`endfield artwork written (seed ${SEED}, ${Math.round(paths.length / 1024)} KB of path data)`);

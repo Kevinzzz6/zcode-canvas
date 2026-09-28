@@ -1,9 +1,18 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json",
+  "format": 1,
   "name": "极光",
-  "description": "深蓝夜空与极光渐变壁纸，青色强调（适合暗色模式）",
-  "wallpaper": { "image": "wallpaper.svg", "fit": "cover", "dim": 0.15 },
-  "glass": { "material": "acrylic", "opacity": 0.62, "blur": 18 },
-  "accent": { "dark": "#5eead4", "light": "#0f766e" },
+  "description": "深蓝夜空与极光渐变壁纸，青色强调",
+  "author": "ZCode Canvas",
+  "version": "1.0.0",
+  "license": "MIT",
+  "modes": [
+    "dark"
+  ],
+  "accent": {
+    "dark": "#5eead4",
+    "light": "#0f766e"
+  },
   "colors": {
     "dark": {
       "background": "#0c1220",
@@ -33,5 +42,17 @@
       "terminal-cursor": "#5eead4"
     }
   },
-  "startup": { "animation": "fade" }
+  "wallpaper": {
+    "image": "wallpaper.svg",
+    "fit": "cover",
+    "dim": 0.15
+  },
+  "glass": {
+    "material": "acrylic",
+    "opacity": 0.62,
+    "blur": 18
+  },
+  "startup": {
+    "animation": "fade"
+  }
 }

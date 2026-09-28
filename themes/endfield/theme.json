@@ -1,16 +1,16 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json",
+  "format": 1,
   "name": "终末地 · 谷地黄",
-  "author": "ymh0000123 (dsh-theme-endfield), adapted for ZCode Canvas",
-  "description": "终末地官网风格：墨黑纸底、信号黄强调、等高线地形壁纸、全直角（适合暗色模式；改编自 dsh-theme-endfield，MIT）",
-  "wallpaper": {
-    "image": "wallpaper.svg",
-    "fit": "cover",
-    "dim": 0
-  },
-  "glass": {
-    "opacity": 0.55,
-    "blur": 0
-  },
+  "description": "终末地官网风格：谷地黄信号色、等高线地形壁纸、全直角；暗色墨黑底，亮色奶油纸底（改编自 dsh-theme-endfield，MIT）",
+  "author": "ZCode Canvas",
+  "version": "1.0.0",
+  "license": "MIT",
+  "source": "https://github.com/ymh0000123/dsh-theme-endfield",
+  "modes": [
+    "dark",
+    "light"
+  ],
   "colors": {
     "dark": {
       "background-win-alt": "#101110",
@@ -64,18 +64,7 @@
       "interaction-ask-foreground": "#fff500",
       "file-node": "rgba(255, 245, 0, 0.16)",
       "file-node-hover": "rgba(255, 245, 0, 0.24)",
-      "file-node-foreground": "#fff500",
-      "--radius": "0",
-      "--radius-xs": "0",
-      "--radius-sm": "0",
-      "--radius-md": "0",
-      "--radius-lg": "0",
-      "--radius-xl": "0",
-      "--radius-2xl": "0",
-      "--radius-3xl": "0",
-      "--workspace-panel-radius": "0",
-      "--sidebar-border-radius": "0",
-      "--tab-panel-border-radius": "0"
+      "file-node-foreground": "#fff500"
     },
     "light": {
       "background-win-alt": "#e8e8e2",
@@ -129,19 +118,23 @@
       "interaction-ask-foreground": "#6b5d00",
       "file-node": "rgba(107, 93, 0, 0.16)",
       "file-node-hover": "rgba(107, 93, 0, 0.24)",
-      "file-node-foreground": "#6b5d00",
-      "--radius": "0",
-      "--radius-xs": "0",
-      "--radius-sm": "0",
-      "--radius-md": "0",
-      "--radius-lg": "0",
-      "--radius-xl": "0",
-      "--radius-2xl": "0",
-      "--radius-3xl": "0",
-      "--workspace-panel-radius": "0",
-      "--sidebar-border-radius": "0",
-      "--tab-panel-border-radius": "0"
+      "file-node-foreground": "#6b5d00"
     }
+  },
+  "radius": 0,
+  "wallpaper": {
+    "fit": "cover",
+    "dim": 0,
+    "dark": {
+      "image": "wallpaper-dark.svg"
+    },
+    "light": {
+      "image": "wallpaper-light.svg"
+    }
+  },
+  "glass": {
+    "opacity": 0.55,
+    "blur": 0
   },
   "startup": {
     "background": "linear-gradient(90deg, #fff500 0 10px, #101110 10px)",

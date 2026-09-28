@@ -1,9 +1,18 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json",
+  "format": 1,
   "name": "樱",
-  "description": "柔和樱粉渐变，粉色强调（适合亮色模式）",
-  "wallpaper": { "image": "wallpaper.svg", "fit": "cover", "dim": 0.1 },
-  "glass": { "material": "acrylic", "opacity": 0.68, "blur": 16 },
-  "accent": { "light": "#db2777", "dark": "#f472b6" },
+  "description": "柔和樱粉渐变，粉色强调",
+  "author": "ZCode Canvas",
+  "version": "1.0.0",
+  "license": "MIT",
+  "modes": [
+    "light"
+  ],
+  "accent": {
+    "light": "#db2777",
+    "dark": "#f472b6"
+  },
   "colors": {
     "light": {
       "background": "#fff7fa",
@@ -32,5 +41,17 @@
       "terminal-cursor": "#db2777"
     }
   },
-  "startup": { "animation": "fade" }
+  "wallpaper": {
+    "image": "wallpaper.svg",
+    "fit": "cover",
+    "dim": 0.1
+  },
+  "glass": {
+    "material": "acrylic",
+    "opacity": 0.68,
+    "blur": 16
+  },
+  "startup": {
+    "animation": "fade"
+  }
 }

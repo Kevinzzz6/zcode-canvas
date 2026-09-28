@@ -1,6 +1,16 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json",
+  "format": 1,
   "name": "护眼",
   "description": "偏暖低亮底色 + 高对比正文，减少大面积发光（配色改编自 zcode-eye-care，MIT）",
+  "author": "ZCode Canvas",
+  "version": "1.0.0",
+  "license": "MIT",
+  "source": "https://github.com/VoodooB0Ys/zcode-eye-care",
+  "modes": [
+    "dark",
+    "light"
+  ],
   "colors": {
     "light": {
       "background": "#f3eddf",
