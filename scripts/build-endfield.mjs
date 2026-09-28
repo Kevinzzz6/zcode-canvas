@@ -23,6 +23,11 @@ const SEED = seedIndex >= 0 ? Number(process.argv[seedIndex + 1]) >>> 0 : 0x5eed
 const W = 1600;
 const H = 900;
 
+// Horizontal fade (fractions of the width): lines keep full strength at the edges and drop to
+// `floor` across the band where ZCode puts the conversation column and composer, so prose never
+// sits on a busy map.
+const FADE = { out: 0.18, low: 0.32, high: 0.84, in: 0.96, floor: 0.3 };
+
 const THEMES = [
   {
     id: "endfield",
@@ -30,7 +35,7 @@ const THEMES = [
     accent: "#fff500",
     // Upstream's composited-contrast-tuned strokes are for an opaque page; Canvas lays the UI
     // over the wallpaper at glass.opacity, which washes them out, so they are raised to match.
-    stroke: { color: "#fff500", opacity: 0.26 },
+    stroke: { color: "#fff500", opacity: 0.3 },
   },
   {
     id: "endfield-wuling",
@@ -158,8 +163,17 @@ function contourPaths(seed) {
 function wallpaper(theme, paths) {
   const { paper, stroke } = theme;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice">
+<defs>
+<linearGradient id="fade" x1="0" x2="1" y1="0" y2="0">
+<stop offset="${FADE.out}" stop-color="#fff"/>
+<stop offset="${FADE.low}" stop-color="#fff" stop-opacity="${FADE.floor}"/>
+<stop offset="${FADE.high}" stop-color="#fff" stop-opacity="${FADE.floor}"/>
+<stop offset="${FADE.in}" stop-color="#fff"/>
+</linearGradient>
+<mask id="reading" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="url(#fade)"/></mask>
+</defs>
 <rect width="${W}" height="${H}" fill="${paper}"/>
-<path fill="none" stroke="${stroke.color}" stroke-opacity="${stroke.opacity}" stroke-width="1" stroke-linejoin="round" vector-effect="non-scaling-stroke" d="${paths}"/>
+<path mask="url(#reading)" fill="none" stroke="${stroke.color}" stroke-opacity="${stroke.opacity}" stroke-width="1" stroke-linejoin="round" vector-effect="non-scaling-stroke" d="${paths}"/>
 </svg>
 `;
 }

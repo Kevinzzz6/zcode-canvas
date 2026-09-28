@@ -8,7 +8,7 @@
     "dim": 0
   },
   "glass": {
-    "opacity": 0.4,
+    "opacity": 0.55,
     "blur": 0
   },
   "colors": {
@@ -54,7 +54,7 @@
       "brand": "#fff500",
       "ring": "#fff500",
       "input-border-focused": "#fff500",
-      "selected": "rgba(255, 245, 0, 0.14)",
+      "selected": "rgba(245, 245, 240, 0.09)",
       "terminal-cursor": "#fff500",
       "terminal-cursor-accent": "#101110",
       "terminal-selection": "rgba(255, 245, 0, 0.28)",
