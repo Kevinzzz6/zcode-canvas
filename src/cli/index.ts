@@ -5,15 +5,20 @@ import { fileURLToPath } from "node:url";
 import { buildCss } from "../shared/css.ts";
 import {
   canvasHome,
+  checkManifest,
+  FORMAT_VERSION,
   listThemes,
   loadLook,
   MATERIALS,
+  MODES,
   paths,
   readConfig,
+  SCHEMA_URL,
   STARTUP_ANIMATIONS,
   WALLPAPER_FITS,
   type CanvasConfig,
   type ThemeManifest,
+  type WallpaperLayer,
 } from "../shared/look.ts";
 import {
   applyPatch,
@@ -54,15 +59,18 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
 可设置的键:
   enabled                     true | false
   theme                       主题 id
-  accent                      强调色，如 #7c5cff
+  accent                      强调色，如 #7c5cff（也可 accent.dark / accent.light）
   colors.dark.<token>         暗色 token，如 colors.dark.sidebar "#101418"
   colors.light.<token>        亮色 token
-  wallpaper.image             图片路径 (png/jpg/webp/avif/gif)
+  radius                      圆角倍数，1 = 官方，0 = 全直角
+  vars.<--属性>               其他 CSS 自定义属性（也可 vars.dark.<--属性> / vars.light.<--属性>）
+  wallpaper.image             图片路径 (png/jpg/webp/avif/gif/svg)
   wallpaper.fit               ${WALLPAPER_FITS.join(" | ")}
   wallpaper.position          CSS background-position，如 "right bottom"
   wallpaper.blur              壁纸模糊 px
   wallpaper.dim               遮罩强度 0~1
   wallpaper.overlay           遮罩颜色（默认暗色黑 / 亮色白）
+  wallpaper.dark.<项>         只对暗色生效的壁纸设置，如 wallpaper.dark.image；亮色同理
   glass.material              ${MATERIALS.join(" | ")}（Windows 窗口材质；macOS 映射为原生
                              毛玻璃，none 关闭；Linux 忽略此项，透明度由窗口本身决定）
   glass.opacity               界面表面不透明度 0~1，1 = 官方外观
@@ -101,11 +109,13 @@ function writeConfig(config: CanvasConfig) {
   writeFileSync(paths.config(home), `${JSON.stringify(config, null, 2)}\n`);
 }
 
-const FILE_KEYS = new Set(["wallpaper.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.[\w-]+|wallpaper\.(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
-const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|wallpaper|glass|startup)$/;
+const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
+const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][\w-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
+const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|startup)$/;
 
 function parseValue(key: string, raw: string): unknown {
+  // Colors and custom property values are CSS text; "0" must stay a string rather than become a number.
+  if (/^(colors|vars|accent)\./.test(key) || key === "accent") return raw;
   if (FILE_KEYS.has(key)) {
     const file = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
     if (!existsSync(file)) throw new Error(`文件不存在: ${file}`);
@@ -199,7 +209,10 @@ function themes() {
   for (const theme of all) {
     const mark = theme.id === config.theme ? "*" : " ";
     const tag = theme.builtin ? "" : " [自定义]";
-    console.log(`${mark} ${theme.id.padEnd(18)} ${theme.manifest.name}${tag}${theme.manifest.description ? ` — ${theme.manifest.description}` : ""}`);
+    const modes = theme.manifest.modes ?? MODES;
+    const fit = modes.length === 1 ? (modes[0] === "dark" ? " [暗色]" : " [亮色]") : "";
+    console.log(`${mark} ${theme.id.padEnd(18)} ${theme.manifest.name}${fit}${tag}${theme.manifest.description ? ` — ${theme.manifest.description}` : ""}`);
+    for (const warning of checkManifest(theme.id, theme.manifest)) console.log(`    ! ${warning}`);
   }
   console.log(`\n自定义主题目录: ${paths.userThemes(home)}`);
 }
@@ -231,15 +244,23 @@ function newTheme(id: string | undefined) {
   if (existsSync(dir)) throw new Error(`主题目录已存在: ${dir}`);
   mkdirSync(dir, { recursive: true });
   const config = readConfig(home);
-  const manifest: ThemeManifest = { name: id };
-  for (const key of ["colors", "accent", "glass"] as const) if (config[key] !== undefined) Object.assign(manifest, { [key]: config[key] });
+  const manifest: ThemeManifest = { $schema: SCHEMA_URL, format: FORMAT_VERSION, name: id };
+  for (const key of ["colors", "accent", "radius", "vars", "glass"] as const) if (config[key] !== undefined) Object.assign(manifest, { [key]: config[key] });
   const copyInto = (file: string | null | undefined, name: string) => {
     if (!file || !existsSync(file)) return file;
     const target = `${name}${extname(file)}`;
     copyFileSync(file, join(dir, target));
     return target;
   };
-  if (config.wallpaper) manifest.wallpaper = { ...config.wallpaper, image: copyInto(config.wallpaper.image, "wallpaper") };
+  if (config.wallpaper) {
+    const wallpaper: WallpaperLayer = { ...config.wallpaper };
+    if (wallpaper.image) wallpaper.image = copyInto(wallpaper.image, "wallpaper");
+    for (const mode of MODES) {
+      const own = wallpaper[mode];
+      if (own?.image) wallpaper[mode] = { ...own, image: copyInto(own.image, `wallpaper-${mode}`) };
+    }
+    manifest.wallpaper = wallpaper;
+  }
   if (config.startup) manifest.startup = { ...config.startup, logo: copyInto(config.startup.logo, "logo") };
   writeFileSync(join(dir, "theme.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`✓ 已创建主题 ${dir}`);
