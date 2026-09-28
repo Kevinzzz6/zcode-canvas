@@ -90,14 +90,14 @@ zcode-canvas wallpaper import ./my-project --preview
 
 ### 外观中心
 
-运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**，或按 `Ctrl/Cmd+Alt+Shift+O` 打开外观中心。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。面板只有两组设置：
+运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**（Windows 无边框窗口看不到菜单栏，入口在**托盘右键菜单**里），或 ZCode 窗口内按 `Ctrl/Cmd+Alt+Shift+O` 打开外观中心——这个快捷键只在 ZCode 窗口获得焦点时生效，不是系统级全局热键。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。ZCode 重建菜单（切换语言、缩放等）时入口会自动补回。面板只有两组设置：
 
 - **主题**：下拉切换（无主题 / 内置 / 用户主题），选中即生效，正在使用的主窗口就是预览；
-- **当前壁纸**：点“选择图片”从原生文件对话框选一张（png / jpg / jpeg / webp / avif / svg），图片会复制进 Canvas 自己的目录再设为壁纸；“清除壁纸”取消单独设置，让主题自带的壁纸重新生效。铺放、模糊、压暗随改随生效；“恢复默认外观”只取消主题和壁纸覆盖，不删除任何文件。
+- **当前壁纸**：点“选择图片”从原生文件对话框选一张（png / jpg / jpeg / webp / avif / svg），图片会复制进 Canvas 自己的目录再设为壁纸（文件名带内容哈希，同名不同图不会互相覆盖）；“清除壁纸”取消单独设置，让主题自带的壁纸重新生效。铺放、模糊、压暗随改随生效；“恢复默认外观”只取消主题和壁纸覆盖，不删除任何文件。
 
 所有修改都走现有的热更新机制实时刷新主窗口，不需要重启 ZCode。
 
-官方更新会整体替换 `app.asar`，补丁随之消失，ZCode 会恢复原样，不会出错。重新执行一次 `zcode-canvas apply` 即可，只需几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
+官方更新会整体替换 `app.asar`，补丁随之消失。默认开启的**更新自愈**会在 ZCode 退出安装更新时启动一个一次性的后台小助手，等新 `app.asar` 写完后自动重新打补丁（过程记录在 `~/.zcode-canvas/runtime.log`）。Linux 的安装目录属于 root 时自愈无法写入，更新后需要手动 `sudo zcode-canvas apply`。不想要这个行为可以 `zcode-canvas set updateRescue false`。自愈失败也无妨：重新执行一次 `zcode-canvas apply` 即可，只需几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
 
 ## 卸载
 
