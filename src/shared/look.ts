@@ -46,21 +46,58 @@ export interface StartupSpec {
 
 export type ModeMap<T> = Partial<Record<Mode, T>>;
 
+/** The theme.json format this build understands. Bumped only for incompatible changes. */
+export const FORMAT_VERSION = 1;
+
+export const MODES: readonly Mode[] = ["dark", "light"];
+
+export const SCHEMA_URL = "https://raw.githubusercontent.com/Kevinzzz6/zcode-canvas/main/schema/theme.schema.json";
+
+/**
+ * Wallpaper for both modes, optionally refined per mode: fields in `dark` / `light` override the
+ * shared ones for that mode, and `"dark": null` removes the wallpaper in dark mode only.
+ */
+export interface WallpaperLayer extends WallpaperSpec {
+  dark?: WallpaperSpec | null;
+  light?: WallpaperSpec | null;
+}
+
+/** Custom properties for both modes (keys start with `--`), optionally refined per mode. */
+export type VarsSpec = { [property: `--${string}`]: string } & {
+  dark?: Record<string, string>;
+  light?: Record<string, string>;
+};
+
 /** Everything that defines a look. Shared by theme manifests and the user config. */
 export interface LookSpec {
-  /** ZCode design tokens per mode. Keys are token names without prefix ("sidebar") or full custom properties ("--color-sidebar"). */
+  /** ZCode color tokens per mode. Keys are token names without prefix ("sidebar") or "--color-sidebar". */
   colors?: ModeMap<Record<string, string>>;
-  /** Accent color, either one value or one per mode. */
+  /** Fills primary / brand / ring (and a readable primary-foreground) wherever `colors` leaves them unset. */
   accent?: string | ModeMap<string> | null;
-  wallpaper?: WallpaperSpec | null;
+  /** Corner radius scale: 1 = official, 0 = square corners. `rounded-full` shapes stay round. */
+  radius?: number | null;
+  /** Other CSS custom properties, for anything that has no dedicated field. */
+  vars?: VarsSpec | null;
+  wallpaper?: WallpaperLayer | null;
   glass?: GlassSpec;
   startup?: StartupSpec;
 }
 
 export interface ThemeManifest extends LookSpec {
+  $schema?: string;
+  /** theme.json format version; omitted means 1. */
+  format?: number;
   name: string;
-  author?: string;
   description?: string;
+  author?: string;
+  /** Version of the theme itself. */
+  version?: string;
+  /** SPDX license id, e.g. "MIT". */
+  license?: string;
+  /** Where the theme or the work it adapts comes from (URL). */
+  source?: string;
+  /** Modes the theme is designed for; omitted means both. */
+  modes?: Mode[];
 }
 
 export interface CanvasConfig extends LookSpec {
@@ -89,7 +126,9 @@ export interface ResolvedStartup {
 export interface ResolvedLook {
   colors: Record<Mode, Record<string, string>>;
   accent: ModeMap<string>;
-  wallpaper: ResolvedWallpaper | null;
+  radius: number | null;
+  vars: Record<Mode, Record<string, string>>;
+  wallpaper: Record<Mode, ResolvedWallpaper | null>;
   glass: Required<GlassSpec>;
   startup: ResolvedStartup;
 }
@@ -161,7 +200,15 @@ function resolveFile(base: string, value: string | null | undefined): string | n
 
 function withResolvedFiles(spec: LookSpec, base: string): LookSpec {
   const out: LookSpec = { ...spec };
-  if (spec.wallpaper) out.wallpaper = { ...spec.wallpaper, image: resolveFile(base, spec.wallpaper.image) };
+  if (spec.wallpaper) {
+    const layer: WallpaperLayer = { ...spec.wallpaper };
+    if ("image" in layer) layer.image = resolveFile(base, layer.image);
+    for (const mode of MODES) {
+      const sub = layer[mode];
+      if (sub && "image" in sub) layer[mode] = { ...sub, image: resolveFile(base, sub.image) };
+    }
+    out.wallpaper = layer;
+  }
   if (spec.startup) out.startup = { ...spec.startup, logo: resolveFile(base, spec.startup.logo) };
   return out;
 }
@@ -174,6 +221,18 @@ function perMode<T>(value: T | ModeMap<T> | null | undefined, isLeaf: (v: unknow
 
 const isString = (v: unknown): v is string => typeof v === "string";
 
+/** Splits a shared-plus-per-mode object into what applies to each mode; `null` means "remove". */
+function splitModes<T extends object>(layer: T & ModeMap<object | null>): Record<Mode, (T & object) | null> {
+  const shared = { ...layer } as Record<string, unknown>;
+  for (const mode of MODES) delete shared[mode];
+  const result = {} as Record<Mode, (T & object) | null>;
+  for (const mode of MODES) {
+    const own = layer[mode];
+    result[mode] = own === null ? null : ({ ...shared, ...(own ?? {}) } as T & object);
+  }
+  return result;
+}
+
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
@@ -181,6 +240,18 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+function resolveWallpaper(spec: WallpaperSpec | null): ResolvedWallpaper | null {
+  if (!spec?.image) return null;
+  return {
+    image: spec.image,
+    fit: oneOf(spec.fit, WALLPAPER_FITS, "cover"),
+    position: spec.position || "center",
+    blur: clamp(spec.blur, 0, 200, 0),
+    dim: clamp(spec.dim, 0, 1, 0.35),
+    overlay: spec.overlay ?? null,
+  };
 }
 
 /**
@@ -193,17 +264,31 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
   layers.push(withResolvedFiles(config, home));
 
   const colors: Record<Mode, Record<string, string>> = { dark: {}, light: {} };
+  const vars: Record<Mode, Record<string, string>> = { dark: {}, light: {} };
+  const wallpaper: Record<Mode, WallpaperSpec | null> = { dark: null, light: null };
   let accent: ModeMap<string> = {};
-  let wallpaper: WallpaperSpec | null = null;
+  let radius: number | null = null;
   let glass: GlassSpec = {};
   let startup: StartupSpec = {};
 
   for (const layer of layers) {
-    for (const mode of ["dark", "light"] as const) Object.assign(colors[mode], layer.colors?.[mode]);
+    for (const mode of MODES) Object.assign(colors[mode], layer.colors?.[mode]);
     if (layer.accent === null) accent = {};
     else if (layer.accent !== undefined) accent = { ...accent, ...perMode(layer.accent, isString) };
-    if (layer.wallpaper === null) wallpaper = null;
-    else if (layer.wallpaper !== undefined) wallpaper = { ...(wallpaper ?? {}), ...layer.wallpaper };
+    if (layer.radius !== undefined) radius = layer.radius === null ? null : clamp(layer.radius, 0, 4, 1);
+    if (layer.vars === null) for (const mode of MODES) vars[mode] = {};
+    else if (layer.vars) {
+      const split = splitModes(layer.vars);
+      for (const mode of MODES) Object.assign(vars[mode], split[mode]);
+    }
+    if (layer.wallpaper === null) for (const mode of MODES) wallpaper[mode] = null;
+    else if (layer.wallpaper) {
+      const split = splitModes(layer.wallpaper);
+      for (const mode of MODES) {
+        const own = split[mode];
+        wallpaper[mode] = own === null ? null : { ...(wallpaper[mode] ?? {}), ...own };
+      }
+    }
     if (layer.glass) glass = { ...glass, ...layer.glass };
     if (layer.startup) startup = { ...startup, ...layer.startup };
   }
@@ -211,16 +296,9 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
   return {
     colors,
     accent,
-    wallpaper: wallpaper?.image
-      ? {
-          image: wallpaper.image,
-          fit: oneOf(wallpaper.fit, WALLPAPER_FITS, "cover"),
-          position: wallpaper.position || "center",
-          blur: clamp(wallpaper.blur, 0, 200, 0),
-          dim: clamp(wallpaper.dim, 0, 1, 0.35),
-          overlay: wallpaper.overlay ?? null,
-        }
-      : null,
+    radius,
+    vars,
+    wallpaper: { dark: resolveWallpaper(wallpaper.dark), light: resolveWallpaper(wallpaper.light) },
     glass: {
       material: oneOf(glass.material, MATERIALS, "acrylic"),
       opacity: clamp(glass.opacity, 0, 1, 1),
@@ -235,6 +313,24 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
   };
 }
 
+const MANIFEST_KEYS = new Set([
+  "$schema", "format", "name", "description", "author", "version", "license", "source", "modes",
+  "colors", "accent", "radius", "vars", "wallpaper", "glass", "startup",
+]);
+
+/** Problems in a theme.json that do not stop it from loading. */
+export function checkManifest(id: string, manifest: ThemeManifest): string[] {
+  const warnings: string[] = [];
+  const format = manifest.format ?? FORMAT_VERSION;
+  if (!Number.isInteger(format) || format < 1) warnings.push(`theme "${id}": invalid format ${JSON.stringify(manifest.format)}`);
+  else if (format > FORMAT_VERSION)
+    warnings.push(`theme "${id}" uses format ${format}; this Canvas understands format ${FORMAT_VERSION}, update zcode-canvas`);
+  for (const key of Object.keys(manifest)) if (!MANIFEST_KEYS.has(key)) warnings.push(`theme "${id}": unknown field "${key}"`);
+  if (manifest.modes !== undefined && (!Array.isArray(manifest.modes) || manifest.modes.some((m) => !MODES.includes(m))))
+    warnings.push(`theme "${id}": modes must be a list of "dark" / "light"`);
+  return warnings;
+}
+
 /** Load config + active theme from disk and resolve them. `null` means Canvas is switched off. */
 export function loadLook(home: string, extraBuiltinDirs: string[] = []): { look: ResolvedLook | null; warnings: string[] } {
   const warnings: string[] = [];
@@ -244,6 +340,7 @@ export function loadLook(home: string, extraBuiltinDirs: string[] = []): { look:
   if (config.theme) {
     theme = listThemes(home, extraBuiltinDirs).find((t) => t.id === config.theme) ?? null;
     if (!theme) warnings.push(`theme "${config.theme}" not found`);
+    else warnings.push(...checkManifest(theme.id, theme.manifest));
   }
   return { look: resolveLook(config, theme, home), warnings };
 }

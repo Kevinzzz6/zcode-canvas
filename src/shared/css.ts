@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import type { Mode, ResolvedLook } from "./look.ts";
+import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
 
 // The contract with ZCode, taken from its source (packages/ui/src/styles.css,
 // packages/ui/src/DesktopWindowFrame.tsx, packages/desktop/src/renderer/index.html):
@@ -90,6 +90,20 @@ const MODE_SELECTOR: Record<Mode, string> = {
   light: "html:root:not(.dark)",
 };
 
+/** Tailwind v4's default radius scale in rem; ZCode's `rounded-*` utilities read these variables. */
+const RADII: ReadonlyArray<readonly [name: string, rem: number]> = [
+  ["xs", 0.125],
+  ["sm", 0.25],
+  ["md", 0.375],
+  ["lg", 0.5],
+  ["xl", 0.75],
+  ["2xl", 1],
+  ["3xl", 1.5],
+  ["4xl", 2],
+];
+
+const ACCENT_TOKENS = ["primary", "brand", "ring", "primary-foreground"] as const;
+
 function block(selector: string, declarations: string[]): string {
   return declarations.length ? `${selector} {\n  ${declarations.join(";\n  ")};\n}` : "";
 }
@@ -97,6 +111,48 @@ function block(selector: string, declarations: string[]): string {
 export interface CssResult {
   css: string;
   warnings: string[];
+}
+
+/** Wallpaper layers under `root` (`html` for both modes, or one mode's selector); `mode` null = both. */
+function wallpaperRules(
+  wallpaper: ResolvedWallpaper,
+  root: string,
+  mode: Mode | null,
+  safe: (label: string, value: string) => boolean,
+): string[] {
+  const label = mode ? `wallpaper.${mode}` : "wallpaper";
+  if (!safe(`${label}.position`, wallpaper.position)) return [];
+  const rules: string[] = [];
+  const url = cssUrl(wallpaper.image);
+  const size = { cover: "cover", contain: "contain", fill: "100% 100%", tile: "auto", center: "auto" }[wallpaper.fit];
+  const repeat = wallpaper.fit === "tile" ? "repeat" : "no-repeat";
+  const bleed = wallpaper.blur ? `${-wallpaper.blur * 2}px` : "0";
+  const layer = ["content: \"\"", "position: fixed", "z-index: -1", "pointer-events: none"];
+  rules.push(
+    block(`${root} body::before`, [
+      ...layer,
+      `inset: ${bleed}`,
+      `background: ${url} ${wallpaper.position} / ${size} ${repeat}`,
+      ...(wallpaper.blur ? [`filter: blur(${wallpaper.blur}px)`] : []),
+    ]),
+  );
+  if (wallpaper.fit === "contain" || wallpaper.fit === "center") {
+    // Letterbox bars are filled with a blurred, zoomed copy of the same image.
+    rules.push(block(`${root}::before`, [...layer, "inset: -60px", `background: ${url} center / cover no-repeat`, "filter: blur(40px)"]));
+  }
+  if (wallpaper.dim > 0) {
+    const pct = Math.round(wallpaper.dim * 1000) / 10;
+    const overlay = wallpaper.overlay && safe(`${label}.overlay`, wallpaper.overlay) ? wallpaper.overlay : null;
+    rules.push(block(`${root} body::after`, [...layer, "inset: 0", "transition: opacity 0.3s ease"]));
+    // ZCode sets its theme classes only after the first paint, so the mode is unknown on the
+    // startup screen; the overlay stays hidden until the UI fades in.
+    rules.push(block("body:not(.zcode-startup-ready)::after", ["opacity: 0"]));
+    for (const m of mode ? [mode] : (["dark", "light"] as const)) {
+      const color = overlay ?? (m === "dark" ? "#000000" : "#ffffff");
+      rules.push(block(`${MODE_SELECTOR[m]} body::after`, [`background: color-mix(in srgb, ${color} ${pct}%, transparent)`]));
+    }
+  }
+  return rules;
 }
 
 export function buildCss(look: ResolvedLook): CssResult {
@@ -110,21 +166,34 @@ export function buildCss(look: ResolvedLook): CssResult {
 
   for (const mode of ["dark", "light"] as const) {
     const declarations: string[] = [];
-    for (const [key, value] of Object.entries(look.colors[mode])) {
+    const colors = look.colors[mode];
+    for (const [key, value] of Object.entries(colors)) {
+      if (key.startsWith("--") && !key.startsWith("--color-")) warnings.push(`colors.${mode}.${key} is not a color token; move it to vars`);
       if (safe(`colors.${mode}.${key}`, value)) declarations.push(`${tokenProperty(key)}: ${value}`);
     }
     const accent = look.accent[mode];
     if (accent && safe(`accent.${mode}`, accent)) {
-      declarations.push(
-        `--color-primary: ${accent}`,
-        `--color-brand: ${accent}`,
-        `--color-ring: ${accent}`,
-      );
-      if (!("primary-foreground" in look.colors[mode] || "--color-primary-foreground" in look.colors[mode])) {
-        declarations.push(`--color-primary-foreground: ${contrastForeground(accent)}`);
+      // Tokens the theme sets explicitly in `colors` win over the ones derived from the accent.
+      const derived: Record<(typeof ACCENT_TOKENS)[number], string> = {
+        primary: accent,
+        brand: accent,
+        ring: accent,
+        "primary-foreground": contrastForeground(accent),
+      };
+      for (const token of ACCENT_TOKENS) {
+        if (!(token in colors) && !(`--color-${token}` in colors)) declarations.push(`--color-${token}: ${derived[token]}`);
       }
     }
+    for (const [key, value] of Object.entries(look.vars[mode])) {
+      if (!/^--[\w-]+$/.test(key)) warnings.push(`ignored vars.${mode}.${key}: custom property names start with --`);
+      else if (safe(`vars.${mode}.${key}`, value)) declarations.push(`${key}: ${value}`);
+    }
     rules.push(block(MODE_SELECTOR[mode], declarations));
+  }
+
+  if (look.radius !== null && look.radius !== 1) {
+    const scale = look.radius;
+    rules.push(block("html:root", RADII.map(([name, rem]) => `--radius-${name}: ${scale === 0 ? "0" : `${Math.round(rem * scale * 1000) / 1000}rem`}`)));
   }
 
   const { opacity, blur } = look.glass;
@@ -146,38 +215,21 @@ export function buildCss(look: ResolvedLook): CssResult {
     }
   }
 
-  const wallpaper = look.wallpaper;
-  if (wallpaper && safe("wallpaper.position", wallpaper.position)) {
-    const url = cssUrl(wallpaper.image);
-    const size = { cover: "cover", contain: "contain", fill: "100% 100%", tile: "auto", center: "auto" }[wallpaper.fit];
-    const repeat = wallpaper.fit === "tile" ? "repeat" : "no-repeat";
-    const bleed = wallpaper.blur ? `${-wallpaper.blur * 2}px` : "0";
-    const layer = ["content: \"\"", "position: fixed", "z-index: -1", "pointer-events: none"];
-    rules.push(
-      block("body::before", [
-        ...layer,
-        `inset: ${bleed}`,
-        `background: ${url} ${wallpaper.position} / ${size} ${repeat}`,
-        ...(wallpaper.blur ? [`filter: blur(${wallpaper.blur}px)`] : []),
-      ]),
-    );
-    if (wallpaper.fit === "contain" || wallpaper.fit === "center") {
-      // Letterbox bars are filled with a blurred, zoomed copy of the same image.
-      rules.push(
-        block("html::before", [...layer, "inset: -60px", `background: ${url} center / cover no-repeat`, "filter: blur(40px)"]),
-      );
-    }
-    if (wallpaper.dim > 0) {
-      const pct = Math.round(wallpaper.dim * 1000) / 10;
-      const overlay = wallpaper.overlay && safe("wallpaper.overlay", wallpaper.overlay) ? wallpaper.overlay : null;
-      rules.push(block("body::after", [...layer, "inset: 0", "transition: opacity 0.3s ease"]));
-      // ZCode sets its theme classes only after the first paint, so the mode is unknown on the
-      // startup screen; the overlay stays hidden until the UI fades in.
-      rules.push(block("body:not(.zcode-startup-ready)::after", ["opacity: 0"]));
+  const { dark, light } = look.wallpaper;
+  if (dark || light) {
+    const shared = JSON.stringify(dark) === JSON.stringify(light);
+    if (shared) rules.push(...wallpaperRules(dark!, "html", null, safe));
+    else {
       for (const mode of ["dark", "light"] as const) {
-        const color = overlay ?? (mode === "dark" ? "#000000" : "#ffffff");
-        rules.push(block(`${MODE_SELECTOR[mode]} body::after`, [`background: color-mix(in srgb, ${color} ${pct}%, transparent)`]));
+        const wallpaper = look.wallpaper[mode];
+        if (wallpaper) rules.push(...wallpaperRules(wallpaper, MODE_SELECTOR[mode], mode, safe));
       }
+      // The mode is unknown until ZCode sets its theme classes after the first paint, so neither
+      // wallpaper is shown behind the startup screen rather than risk flashing the wrong one.
+      rules.push(
+        block("body::before, html::before", ["transition: opacity 0.3s ease"]),
+        block("body:not(.zcode-startup-ready)::before, html:has(> body:not(.zcode-startup-ready))::before", ["opacity: 0"]),
+      );
     }
   }
 
