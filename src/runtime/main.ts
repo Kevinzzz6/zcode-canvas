@@ -9,6 +9,7 @@ import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, encod
 import { watchHome } from "./watch.ts";
 
 const PANEL_ACCELERATOR = "CommandOrControl+Alt+Shift+O";
+const OFFICIAL_MATERIAL: Material = "acrylic";
 
 const home = canvasHome();
 const logFile = paths.log(home);
@@ -161,6 +162,56 @@ function reload() {
   log(`reloaded (css ${state.css.length} bytes, material ${state.material})`);
 }
 
+function registerPanelHandlers() {
+  try {
+    ipcMain.handle(CHANNEL_PANEL_GET, () => readPanelData());
+  } catch (error) {
+    log(`panel get handler unavailable: ${String(error)}`);
+  }
+  try {
+    ipcMain.handle(CHANNEL_PANEL_APPLY, (_event, value: unknown) => {
+      if (!value || typeof value !== "object") throw new Error("invalid panel request");
+      const input = value as { theme?: unknown; wallpaper?: unknown; fit?: unknown; blur?: unknown; dim?: unknown };
+      const config = readConfig(home);
+      if (input.theme === null || typeof input.theme === "string") {
+        if (input.theme === null || input.theme === "") config.theme = null;
+        else if (listThemes(home).some((entry) => entry.id === input.theme)) config.theme = input.theme;
+        else throw new Error("unknown theme");
+      }
+      if (input.wallpaper === null) {
+        config.wallpaper = null;
+      } else if (typeof input.wallpaper === "string" && input.wallpaper) {
+        const candidate = importedWallpaperPath(input.wallpaper);
+        if (!candidate || !existsSync(candidate) || !statSync(candidate).isFile()) throw new Error("wallpaper is not imported");
+        config.wallpaper = { ...(config.wallpaper ?? {}), image: candidate };
+      }
+      if (input.fit !== undefined || input.blur !== undefined || input.dim !== undefined) {
+        const wallpaper = { ...(config.wallpaper ?? {}) };
+        if (input.fit !== undefined) {
+          if (!["cover", "contain", "fill", "tile", "center"].includes(String(input.fit))) throw new Error("invalid wallpaper fit");
+          wallpaper.fit = input.fit as typeof wallpaper.fit;
+        }
+        if (input.blur !== undefined) {
+          const n = Number(input.blur);
+          if (!Number.isFinite(n) || n < 0 || n > 200) throw new Error("invalid wallpaper blur");
+          wallpaper.blur = n;
+        }
+        if (input.dim !== undefined) {
+          const n = Number(input.dim);
+          if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error("invalid wallpaper dim");
+          wallpaper.dim = n;
+        }
+        config.wallpaper = wallpaper;
+      }
+      writeConfigAtomic(config);
+      reload();
+      return { ok: true };
+    });
+  } catch (error) {
+    log(`panel apply handler unavailable: ${String(error)}`);
+  }
+}
+
 try {
   // Only the preload of ZCode's main window asks, so this also identifies the windows to style.
   ipcMain.on(CHANNEL_GET, (event) => {
@@ -174,45 +225,7 @@ try {
     }
   });
 
-  ipcMain.handle(CHANNEL_PANEL_GET, () => readPanelData());
-  ipcMain.handle(CHANNEL_PANEL_APPLY, (_event, value: unknown) => {
-    if (!value || typeof value !== "object") throw new Error("invalid panel request");
-    const input = value as { theme?: unknown; wallpaper?: unknown; fit?: unknown; blur?: unknown; dim?: unknown };
-    const config = readConfig(home);
-    if (input.theme === null || typeof input.theme === "string") {
-      if (input.theme === null || input.theme === "") config.theme = null;
-      else if (listThemes(home).some((entry) => entry.id === input.theme)) config.theme = input.theme;
-      else throw new Error("unknown theme");
-    }
-    if (input.wallpaper === null) {
-      config.wallpaper = null;
-    } else if (typeof input.wallpaper === "string" && input.wallpaper) {
-      const candidate = importedWallpaperPath(input.wallpaper);
-      if (!candidate || !existsSync(candidate) || !statSync(candidate).isFile()) throw new Error("wallpaper is not imported");
-      config.wallpaper = { ...(config.wallpaper ?? {}), image: candidate };
-    }
-    if (input.fit !== undefined || input.blur !== undefined || input.dim !== undefined) {
-      const wallpaper = { ...(config.wallpaper ?? {}) };
-      if (input.fit !== undefined) {
-        if (!["cover", "contain", "fill", "tile", "center"].includes(String(input.fit))) throw new Error("invalid wallpaper fit");
-        wallpaper.fit = input.fit as typeof wallpaper.fit;
-      }
-      if (input.blur !== undefined) {
-        const n = Number(input.blur);
-        if (!Number.isFinite(n) || n < 0 || n > 200) throw new Error("invalid wallpaper blur");
-        wallpaper.blur = n;
-      }
-      if (input.dim !== undefined) {
-        const n = Number(input.dim);
-        if (!Number.isFinite(n) || n < 0 || n > 1) throw new Error("invalid wallpaper dim");
-        wallpaper.dim = n;
-      }
-      config.wallpaper = wallpaper;
-    }
-    writeConfigAtomic(config);
-    reload();
-    return { ok: true };
-  });
+  registerPanelHandlers();
 
   app.once("ready", () => {
     try {
@@ -221,19 +234,21 @@ try {
         type: "frame",
         filePath: join(__dirname, "preload.cjs"),
       });
+    } catch (error) {
+      log(`preload registration failed: ${String(error)}`);
+    }
+    try {
       scheduleMenuInjection();
       globalShortcut.register(PANEL_ACCELERATOR, openPanel);
       consumeOpenRequest();
     } catch (error) {
-      log(`preload registration failed: ${String(error)}`);
+      log(`panel entry unavailable: ${String(error)}`);
     }
   });
 
   // The payload is versioned (shared/protocol.ts): after a runtime upgrade on disk, pages loaded
   // afterwards run the new preload against this still-running old main.
-
   watchHome(home, reload, log);
-
   log(`runtime loaded in ZCode ${app.getVersion()} (css ${state.css.length} bytes, material ${state.material})`);
 } catch (error) {
   log(`runtime init failed: ${String(error)}`);
