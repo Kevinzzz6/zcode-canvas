@@ -90,14 +90,14 @@ zcode-canvas wallpaper import ./my-project --preview
 
 ### 外观中心
 
-运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**（Windows 无边框窗口看不到菜单栏，入口在**托盘右键菜单**里），或 ZCode 窗口内按 `Ctrl/Cmd+Alt+Shift+O` 打开外观中心——这个快捷键只在 ZCode 窗口获得焦点时生效，不是系统级全局热键。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。ZCode 重建菜单（切换语言、缩放等）时入口会自动补回。面板只有两组设置：
+运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**（Windows 无边框窗口看不到菜单栏，入口在**托盘右键菜单**里），或 ZCode 窗口内按 `Ctrl/Cmd+Alt+Shift+O` 打开外观中心——这个快捷键只在 ZCode 窗口获得焦点时生效，不是系统级全局热键；ZCode 录制快捷键时会自动让位，可以把这个组合绑定给 ZCode 自己的命令。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。ZCode 重建菜单（切换语言、缩放等）时入口会自动补回。面板只有两组设置：
 
 - **主题**：下拉切换（无主题 / 内置 / 用户主题），选中即生效，正在使用的主窗口就是预览；
 - **当前壁纸**：点“选择图片”从原生文件对话框选一张（png / jpg / jpeg / webp / avif / svg / gif），图片会复制进 Canvas 自己的目录再设为壁纸（文件名带内容哈希，同名不同图不会互相覆盖）；“清除壁纸”取消单独设置，让主题自带的壁纸重新生效。铺放、模糊、压暗随改随生效；“恢复默认外观”只取消主题和壁纸覆盖，不删除任何文件。
 
 所有修改都走现有的热更新机制实时刷新主窗口，不需要重启 ZCode。
 
-官方更新会整体替换 `app.asar`，补丁随之消失。默认开启的**更新自愈**会在 ZCode 退出安装更新时启动一个一次性的后台小助手，等新 `app.asar` 写完后自动重新打补丁（过程记录在 `~/.zcode-canvas/runtime.log`）。Linux 的安装目录属于 root 时自愈无法写入，更新后需要手动 `sudo zcode-canvas apply`。不想要这个行为可以 `zcode-canvas set updateRescue false`。自愈失败也无妨：重新执行一次 `zcode-canvas apply` 即可，只需几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
+官方更新会整体替换 `app.asar`，补丁随之消失。默认开启的**更新自愈**会在 ZCode 退出安装更新时接管：Windows 上先启动系统自带的 PowerShell 小等待器（在安装目录之外，不会被官方安装器的“关闭运行中应用”步骤杀掉），等更新安装器真正运行并退出后，再用新的 `ZCode.exe` 重新打补丁；macOS / Linux 直接在退出时移交。普通退出不会打补丁；Windows 上已下载但尚未安装更新时，退出会短暂启动一个隐藏等待器确认没有安装器后自行退出。过程全部记录在 `~/.zcode-canvas/runtime.log`。Linux 的安装目录属于 root 时自愈会立即记录并让位，更新后手动 `sudo zcode-canvas apply`。不想要这个行为可以 `zcode-canvas set updateRescue false`。自愈失败也无妨：重新执行一次 `zcode-canvas apply` 即可，只需几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
 
 ## 卸载
 
@@ -116,6 +116,8 @@ ZCode 开源后，很多事情可以直接从源码里确认，不必再靠猜�
    - 改过 `main` 字段的 `package.json`；
    - 约 20 行的引导脚本 `out/zcode-canvas/boot.mjs`；
    - 还原所需的记录 `out/zcode-canvas/restore.json`。
+
+   首次打补丁前会独立校验官方 `app.asar` 的头部能被逐字节往返重写——校验不过就拒绝打补丁，保证 `restore` 还原出的文件与官方原文件逐字节一致不是一句空话。
 
    引导脚本先加载 `~/.zcode-canvas/runtime/main.cjs`，再导入 ZCode 原来的入口。运行时加载失败不会影响 ZCode 启动。
 2. **运行时在 ZCode 的主进程里运行**。它给默认 session 注册一个预加载脚本，在页面首帧之前用 `webFrame.insertCSS` 注入样式，所以启动画面也能改。样式不写进 DOM，React 碰不到它，也就不需要 MutationObserver。窗口材质按平台切换：Windows 用 `setBackgroundMaterial`，macOS 用 `setVibrancy`，Linux 窗口本身就是透明的不用切换。配置文件变化时通过 IPC 推送新样式。
