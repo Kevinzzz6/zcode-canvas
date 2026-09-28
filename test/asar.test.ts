@@ -159,6 +159,49 @@ test("re-patching a patch from before patchFormat rewrites it with the current f
   assert.deepEqual(readFileSync(restored), readFileSync(makeArchive(join(dir, "fresh-"))));
 });
 
+test("re-patching a patch from before originalHash migrates it to a verifiable record", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const once = join(dir, "once.asar");
+  writePatched(readArchive(makeArchive(dir)), once, "0.0.0-test");
+
+  // Rebuild what an older Canvas wrote: the same patch, but the restore record lacks originalHash
+  // (same header-shrinking technique as the patchFormat test above).
+  const archive = readArchive(once);
+  const restoreEntry = archive.header.files.out!.files!["zcode-canvas"]!.files!["restore.json"]!;
+  const record = JSON.parse(readEntry(archive, restoreEntry).toString("utf8")) as Record<string, unknown>;
+  delete record.originalHash;
+  const legacyContent = Buffer.from(JSON.stringify(record, null, 2), "utf8");
+  const hash = createHash("sha256").update(legacyContent).digest("hex");
+  const header = structuredClone(archive.header);
+  header.files.out!.files!["zcode-canvas"]!.files!["restore.json"] = {
+    size: legacyContent.length,
+    offset: restoreEntry.offset,
+    integrity: { algorithm: "SHA256", hash, blockSize: 4194304, blocks: [hash] },
+  };
+  const json = Buffer.from(JSON.stringify(header));
+  const aligned = (json.length + 3) & ~3;
+  const prefix = Buffer.alloc(16);
+  prefix.writeUInt32LE(4, 0);
+  prefix.writeUInt32LE(8 + aligned, 4);
+  prefix.writeUInt32LE(4 + aligned, 8);
+  prefix.writeUInt32LE(json.length, 12);
+  const beforeRestore = readFileSync(once).subarray(archive.dataOffset, archive.dataOffset + archive.dataSize - restoreEntry.size!);
+  const legacyAsar = join(dir, "legacy.asar");
+  writeFileSync(legacyAsar, Buffer.concat([prefix, json, Buffer.alloc(aligned - json.length), beforeRestore, legacyContent]));
+  assert.equal(inspect(readArchive(legacyAsar)).restore?.originalHash, undefined);
+
+  // Re-patching migrates the record: the hash must describe the pristine base, not the patched
+  // file it was read from (that value would brick every later restore).
+  const updated = join(dir, "updated.asar");
+  writePatched(readArchive(legacyAsar), updated, "0.0.0-test");
+  mkdirSync(join(dir, "fresh-"), { recursive: true });
+  const pristineHash = createHash("sha256").update(readFileSync(makeArchive(join(dir, "fresh-")))).digest("hex");
+  assert.equal(inspect(readArchive(updated)).restore?.originalHash, pristineHash);
+  const restored = join(dir, "restored.asar");
+  writeRestored(readArchive(updated), restored);
+  assert.deepEqual(readFileSync(restored), readFileSync(makeArchive(join(dir, "fresh-"))));
+});
+
 test("a truncated or non-asar file is rejected with a clear error, not garbage or an OOM", () => {
   const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
   const stub = join(dir, "app.asar");

@@ -276,15 +276,15 @@ function planPatch(
   return { header, dataSize: base.dataSize, extra: [packageJson, boot, restore], record };
 }
 
-/** sha256 of the archive writeArchive(source, target, header, dataSize, extra) would produce. */
-function plannedArchiveHash(source: AsarArchive, plan: { header: AsarHeader; dataSize: number; extra: Buffer[] }): string {
-  const hash = createHash("sha256");
-  hash.update(headerBytes(plan.header));
+/** Hashes the prefix a writeArchive(source, …, base.dataSize) would start with: the re-serialized
+ *  header followed by the first base.dataSize bytes of the source's data region. */
+function hashPristinePrefixInto(hash: ReturnType<typeof createHash>, source: AsarArchive, base: { header: AsarHeader; dataSize: number }): void {
+  hash.update(headerBytes(base.header));
   const fd = openSync(source.path, "r");
   try {
     const chunk = Buffer.alloc(4 * 1024 * 1024);
-    for (let copied = 0; copied < plan.dataSize; ) {
-      const read = readSync(fd, chunk, 0, Math.min(chunk.length, plan.dataSize - copied), source.dataOffset + copied);
+    for (let copied = 0; copied < base.dataSize; ) {
+      const read = readSync(fd, chunk, 0, Math.min(chunk.length, base.dataSize - copied), source.dataOffset + copied);
       if (read === 0) throw new Error("unexpected end of archive");
       hash.update(chunk.subarray(0, read));
       copied += read;
@@ -292,6 +292,19 @@ function plannedArchiveHash(source: AsarArchive, plan: { header: AsarHeader; dat
   } finally {
     closeSync(fd);
   }
+}
+
+/** sha256 of the pristine archive a patch of `base` would start from, streamed without a temp file. */
+export function pristineArchiveHash(source: AsarArchive, base: { header: AsarHeader; dataSize: number }): string {
+  const hash = createHash("sha256");
+  hashPristinePrefixInto(hash, source, base);
+  return hash.digest("hex");
+}
+
+/** sha256 of the archive writeArchive(source, target, header, dataSize, extra) would produce. */
+function plannedArchiveHash(source: AsarArchive, plan: { header: AsarHeader; dataSize: number; extra: Buffer[] }): string {
+  const hash = createHash("sha256");
+  hashPristinePrefixInto(hash, source, plan);
   for (const buffer of plan.extra) hash.update(buffer);
   return hash.digest("hex");
 }
@@ -332,13 +345,23 @@ function writeArchive(source: AsarArchive, target: string, header: AsarHeader, d
   }
 }
 
+/** True when the record's originalHash matches the pristine base it describes. Records from before
+ *  the field existed — or stamped from the patched file by an older build — are unsound until the
+ *  next apply rewrites them. */
+export function recordHashIsSound(archive: AsarArchive, restore: RestoreRecord): boolean {
+  return restore.originalHash === pristineArchiveHash(archive, pristine(archive, restore));
+}
+
 /** Writes a patched copy of `source` to `target`. Re-patching an already patched archive starts from the pristine state. */
 export function writePatched(source: AsarArchive, target: string, canvasVersion: string) {
   const previous = inspect(source).restore;
   const base = pristine(source, previous);
   assertCanvasDirFree(base, source.path);
   if (previous && !untouchedSincePatch(source, base, previous)) throw modifiedAfterPatchError(source.path);
-  const originalHash = previous?.originalHash ?? sha256File(source.path);
+  // Always derived from the pristine base, never read back from a previous record or from
+  // `source.path` (which is the patched archive here): an older build once stamped the patched
+  // file's hash into this field, which permanently broke restore's byte-for-byte check.
+  const originalHash = pristineArchiveHash(source, base);
   const plan = planPatch(source, base, canvasVersion, originalHash, PATCH_FORMAT);
   writeArchive(source, target, plan.header, plan.dataSize, plan.extra);
 }
