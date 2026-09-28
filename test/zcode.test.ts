@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { makeArchive } from "./make-archive.ts";
 import {
   applyPatch,
+  deployRuntime,
   exeName,
+  readState,
   removePatch,
   ResignError,
   runPendingSwap,
+  runUpdateRescue,
   sudoOwner,
   type Installation,
 } from "../src/installer/zcode.ts";
@@ -91,6 +94,89 @@ test("sudoOwner resolves the invoking user, never root, and never without eviden
   assert.equal(sudoOwner({ SUDO_USER: "alice" }), null);
   assert.equal(sudoOwner({ SUDO_USER: "alice", SUDO_UID: "not-a-number", SUDO_GID: "10" }), null);
   assert.equal(sudoOwner({ SUDO_USER: "alice", SUDO_UID: "0", SUDO_GID: "0" }, { uid: 0, gid: 0 }), null);
+});
+
+test("update rescue: a quiet, still-patched archive means an ordinary quit", async () => {
+  const install = fakeInstall();
+  applyPatch(install, "0.0.0-test", import.meta.filename);
+  const logged: string[] = [];
+  const outcome = await runUpdateRescue(install.dir, install.dir, import.meta.filename, (m) => logged.push(m), {
+    pollMs: 1,
+    settlePolls: 2,
+    deadlineMs: 5_000,
+  });
+  assert.equal(outcome, "already-patched");
+  assert.match(logged.join("\n"), /nothing to do/);
+  // And the archive was not rewritten.
+  assert.equal(readState(install).patched, true);
+});
+
+test("update rescue: re-patches a replaced archive once it settles", async () => {
+  const install = fakeInstall();
+  applyPatch(install, "0.0.0-test", import.meta.filename);
+  const home = mkdtempSync(join(tmpdir(), "zc-rescue-"));
+  mkdirSync(join(home, "runtime"), { recursive: true });
+  writeFileSync(join(home, "runtime", "version.json"), JSON.stringify({ version: "0.0.0-test" }));
+  // Simulate the official update: a fresh, unpatched archive lands on disk.
+  makeArchive(join(install.dir, "resources"));
+  const logged: string[] = [];
+  const outcome = await runUpdateRescue(install.dir, home, import.meta.filename, (m) => logged.push(m), {
+    pollMs: 1,
+    settlePolls: 2,
+    deadlineMs: 5_000,
+  });
+  assert.equal(outcome, "re-patched");
+  const state = readState(install);
+  assert.equal(state.patched, true);
+  assert.equal(state.restore?.canvasVersion, "0.0.0-test");
+  assert.match(logged.join("\n"), /re-applied the patch/);
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("update rescue: a pending apply/restore swap owns the archive and wins", async () => {
+  const install = fakeInstall();
+  parkPending(install, "job-1");
+  const outcome = await runUpdateRescue(install.dir, install.dir, import.meta.filename, () => {}, {
+    pollMs: 1,
+    settlePolls: 1,
+    deadlineMs: 1_000,
+  });
+  assert.equal(outcome, "pending-swap");
+  assert.ok(statSync(`${install.asar}.canvas-pending`, { throwIfNoEntry: false }), "the parked file is untouched");
+});
+
+test("update rescue: a half-written archive is never patched; it times out instead", async () => {
+  const install = fakeInstall();
+  writeFileSync(install.asar, "installer is still writing this file");
+  const outcome = await runUpdateRescue(install.dir, install.dir, import.meta.filename, () => {}, {
+    pollMs: 1,
+    settlePolls: 1,
+    deadlineMs: 30,
+  });
+  assert.equal(outcome, "still-busy");
+  assert.equal(readFileSync(install.asar, "utf8"), "installer is still writing this file");
+});
+
+test("update rescue: a vanished installation reports and does nothing", async () => {
+  const outcome = await runUpdateRescue(join(tmpdir(), "zc-nowhere-"), join(tmpdir(), "zc-nowhere-"), import.meta.filename);
+  assert.equal(outcome, "no-install");
+});
+
+test("deployRuntime ships the CLI copy the rescue helper runs", () => {
+  const root = mkdtempSync(join(tmpdir(), "zc-pkg-"));
+  const home = mkdtempSync(join(tmpdir(), "zc-home-"));
+  mkdirSync(join(root, "dist", "runtime"), { recursive: true });
+  writeFileSync(join(root, "dist", "runtime", "main.cjs"), "runtime");
+  writeFileSync(join(root, "dist", "cli.js"), "#!/usr/bin/env node\n");
+  mkdirSync(join(root, "themes", "t"), { recursive: true });
+  writeFileSync(join(root, "themes", "t", "theme.json"), JSON.stringify({ name: "T" }));
+  writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.0.0-test" }));
+  deployRuntime(root, home);
+  assert.equal(readFileSync(join(home, "runtime", "cli.mjs"), "utf8"), "#!/usr/bin/env node\n");
+  assert.equal(readFileSync(join(home, "runtime", "main.cjs"), "utf8"), "runtime");
+  assert.ok(existsSync(join(home, "runtime", "themes", "t", "theme.json")));
+  rmSync(root, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
 });
 
 test("restoreOwnership is a harmless no-op for the platforms it cannot apply to", async () => {

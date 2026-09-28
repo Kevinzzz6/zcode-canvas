@@ -1,8 +1,8 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { chownSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chownSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { BOOT_PATH, inspect, isPatchCurrent, readArchive, readFile, writePatched, writeRestored, type PatchState } from "./asar.ts";
+import { BOOT_PATH, inspect, isPatchCurrent, readArchive, readFile, recordHashIsSound, writePatched, writeRestored, type PatchState } from "./asar.ts";
 
 export interface Installation {
   dir: string;
@@ -226,6 +226,9 @@ export function deployRuntime(packageRoot: string, home: string) {
   mkdirSync(staging, { recursive: true });
   cpSync(join(packageRoot, "dist", "runtime"), staging, { recursive: true });
   cpSync(join(packageRoot, "themes"), join(staging, "themes"), { recursive: true });
+  // The update-rescue helper runs this CLI copy with ZCode.exe-as-Node; .mjs keeps it ESM no matter
+  // what package.json sits above the Canvas home. Absent in dev checkouts; rescue then no-ops.
+  if (existsSync(join(packageRoot, "dist", "cli.js"))) copyFileSync(join(packageRoot, "dist", "cli.js"), join(staging, "cli.mjs"));
   writeFileSync(join(staging, "version.json"), JSON.stringify({ version: packageVersion(packageRoot) }, null, 2));
   rmSync(runtime, { recursive: true, force: true });
   renameSync(staging, runtime);
@@ -345,6 +348,112 @@ export function hasPendingSwap(install: Installation): boolean {
   return existsSync(pendingPath(install));
 }
 
+export type RescueOutcome = "no-install" | "pending-swap" | "already-patched" | "re-patched" | "still-busy" | "failed";
+
+export interface RescueTuning {
+  /** Milliseconds between archive checks while waiting for an update to finish writing. */
+  pollMs?: number;
+  /** Consecutive quiet polls required before the new archive is considered complete. */
+  settlePolls?: number;
+  /** Overall wall-clock budget of one rescue run. */
+  deadlineMs?: number;
+}
+
+function tryReadState(install: Installation): PatchState | null {
+  try {
+    return readState(install);
+  } catch {
+    // Unreadable: the updater is mid-write (or left a broken archive); treated as "not settled".
+    return null;
+  }
+}
+
+function statFingerprint(file: string): string {
+  try {
+    const stat = statSync(file);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return "gone";
+  }
+}
+
+/**
+ * Body of the update-rescue helper the runtime spawns as ZCode quits over a staged update
+ * (`__rescue`). The installer replaces app.asar shortly after the app exits, removing the patch;
+ * this waits for the new archive to settle and re-applies it. No decision — not even "still
+ * patched, done" — happens before the archive has held still for several polls, because the
+ * installer may not have reached app.asar yet when the helper starts. A pending apply/restore swap
+ * owns the archive and wins over the rescue.
+ */
+export async function runUpdateRescue(
+  installDir: string,
+  canvasHomeDir: string,
+  cliPath: string,
+  log: (message: string) => void = console.log,
+  tuning: RescueTuning = {},
+): Promise<RescueOutcome> {
+  const install = installationAt(installDir);
+  if (!install) {
+    log("update rescue: installation is gone, nothing to rescue");
+    return "no-install";
+  }
+  if (hasPendingSwap(install)) {
+    log("update rescue: an apply/restore swap already owns app.asar, leaving it alone");
+    return "pending-swap";
+  }
+  const versionFile = join(canvasHomeDir, "runtime", "version.json");
+  const canvasVersion = existsSync(versionFile)
+    ? (JSON.parse(readFileSync(versionFile, "utf8")) as { version: string }).version
+    : "rescue";
+  const pollMs = tuning.pollMs ?? 1500;
+  const settlePolls = tuning.settlePolls ?? 8;
+  const deadlineMs = tuning.deadlineMs ?? 15 * 60 * 1000;
+  const startedAt = Date.now();
+
+  let quiet = 0;
+  let fingerprint = "\u0000";
+  let lastError: string | null = null;
+  for (;;) {
+    const current = statFingerprint(install.asar);
+    quiet = current === fingerprint ? quiet + 1 : 0;
+    fingerprint = current;
+    if (quiet >= settlePolls) {
+      const state = tryReadState(install);
+      if (state?.patched) {
+        // The staged update never landed (or something else already re-patched). Either way: done.
+        log(`update rescue: app.asar is the patched one (ZCode ${state.zcodeVersion}), nothing to do`);
+        return "already-patched";
+      }
+      // An unreadable archive means the updater is still mid-write; only a fully readable,
+      // unpatched one gets patched.
+      if (state) {
+        try {
+          const outcome = applyPatch(install, canvasVersion, cliPath);
+          log(`update rescue: re-applied the patch to ${install.asar} (${outcome})`);
+          return "re-patched";
+        } catch (error) {
+          if (error instanceof ResignError) {
+            log(`update rescue: ${error.message}`);
+            return "failed";
+          }
+          // Held by the quitting ZCode or the running installer, or written under us: keep waiting.
+          if (String(error) !== lastError) {
+            lastError = String(error);
+            log(`update rescue: waiting for app.asar (${String(error)})`);
+          }
+          quiet = 0;
+        }
+      }
+    }
+    if (Date.now() - startedAt > deadlineMs) {
+      log(`update rescue: timed out waiting for the update to finish${lastError ? ` (last error: ${lastError})` : ""}`);
+      return "still-busy";
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
+
 export function cancelPendingSwap(install: Installation) {
   rmSync(pendingPath(install), { force: true });
   rmSync(`${pendingPath(install)}.json`, { force: true });
@@ -358,9 +467,10 @@ function verifyPatched(file: string, expectPatched: boolean) {
 export function applyPatch(install: Installation, canvasVersion: string, cliPath: string, resign: Resigner = adHocResign): ReplaceOutcome | "unchanged" {
   const archive = readArchive(install.asar);
   const state = inspect(archive);
-  // "Unchanged" needs both the bootstrap this build would write and the patch format it stamps;
-  // otherwise a patch from an older Canvas (old record schema, old header shape) must be rewritten.
-  if (state.patched && isPatchCurrent(readFile(archive, BOOT_PATH).toString("utf8"), state)) {
+  // "Unchanged" needs the bootstrap this build would write, the patch format it stamps, and a
+  // restore record whose hash is trustworthy — otherwise a patch from an older Canvas (old record
+  // schema, old header shape, or a hash stamped from the wrong file) must be rewritten.
+  if (state.patched && state.restore && isPatchCurrent(readFile(archive, BOOT_PATH).toString("utf8"), state) && recordHashIsSound(archive, state.restore)) {
     cancelPendingSwap(install);
     return "unchanged";
   }

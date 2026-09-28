@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { themeSchemaProblems } from "./schema.ts";
@@ -35,6 +35,7 @@ import {
   removePatch,
   restoreOwnership,
   runPendingSwap,
+  runUpdateRescue,
   type ReplaceOutcome,
 } from "../installer/zcode.ts";
 
@@ -43,7 +44,19 @@ const packageRoot = dirname(dirname(cliPath));
 const home = canvasHome();
 const packagedThemes = join(packageRoot, "themes");
 
-const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的主题 / 壁纸 / 毛玻璃 / 启动画面
+// ZCode.exe-as-Node (the update-rescue helper) still runs with Electron's asar-aware fs patch,
+// which redirects raw access to *.asar paths into the archive's main entry; the patcher must see
+// the real bytes. Plain Node has no such patch and ignores the flag.
+(process as NodeJS.Process & { noAsar?: boolean }).noAsar = true;
+
+// The update-rescue helper runs a copy of this CLI from <canvas home>/runtime/cli.mjs, where no
+// package.json sits above it: anything reading the package layout must stay lazy or guarded.
+function cliVersion(): string {
+  return existsSync(join(packageRoot, "package.json")) ? packageVersion(packageRoot) : "unknown";
+}
+
+function helpText(): string {
+  return `ZCode Canvas ${cliVersion()} — 官方 ZCode 的主题 / 壁纸 / 毛玻璃 / 启动画面
 
 用法: zcode-canvas <命令> [参数]
 
@@ -66,6 +79,7 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
 可设置的键:
   enabled                     true | false
   theme                       主题 id
+  updateRescue                true | false — ZCode 自动更新后自动重新打补丁（默认 true）
   accent                      强调色，如 #7c5cff（也可 accent.dark / accent.light）
   colors.dark.<token>         暗色 token，如 colors.dark.sidebar "#101418"
   colors.light.<token>        亮色 token
@@ -87,6 +101,7 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
   startup.logoSize            启动 logo 尺寸 px
   startup.animation           ${STARTUP_ANIMATIONS.join(" | ")}
 `;
+}
 
 interface Args {
   command: string | undefined;
@@ -118,7 +133,7 @@ function writeConfig(config: CanvasConfig) {
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
+const ALLOWED_KEY = /^(enabled|theme|updateRescue|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
 const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|startup)$/;
 
 function parseValue(key: string, raw: string): unknown {
@@ -167,6 +182,17 @@ function revealInFileManager(path: string) {
   spawn(tool, [path], { detached: true, stdio: "ignore" }).unref();
 }
 
+/** The update-rescue helper runs detached with its output discarded; its log belongs in the file. */
+function rescueLog(homeDir: string): (message: string) => void {
+  return (message) => {
+    try {
+      appendFileSync(paths.log(homeDir), `${new Date().toISOString()} ${message}\n`);
+    } catch {
+      // Nothing else can be done with the line from a detached helper.
+    }
+  };
+}
+
 /** Everything wrong with a theme's manifest: the shallow checks plus the full schema. */
 function themeProblems(entry: ThemeEntry): string[] {
   return [...checkManifest(entry.id, entry.manifest), ...themeSchemaProblems(packageRoot, entry.manifest)];
@@ -200,7 +226,7 @@ function apply(explicit?: string) {
   console.log(`✓ 运行时已安装到 ${paths.runtime(home)}`);
   const state = readState(install);
   console.log(`  ZCode ${state.zcodeVersion} @ ${install.dir}`);
-  const outcome = applyPatch(install, packageVersion(packageRoot), cliPath);
+  const outcome = applyPatch(install, cliVersion(), cliPath);
   if (outcome === "unchanged") console.log("✓ 补丁已是最新。运行时的更新在下次启动 ZCode 时生效。");
   else describeOutcome(outcome, "给 ZCode 打补丁");
 }
@@ -287,7 +313,8 @@ function newTheme(id: string | undefined) {
 function importWallpaperCommand(projectDir: string | undefined, preview: boolean) {
   if (!projectDir) throw new Error("用法: zcode-canvas wallpaper import <项目目录> [--preview]");
   const result = importWallpaper(projectDir, home, preview);
-  writeConfig(result.config);
+  // importWallpaper already persisted the config atomically; under sudo, hand the files back.
+  restoreOwnership(home);
   console.log(`✓ 已导入静态图片: ${result.destination}`);
   console.log(`  来源: ${result.source}`);
   console.log("  已更新 wallpaper.image；其它配置保持不变。预览图不会被当作原图。 ");
@@ -348,13 +375,17 @@ async function main() {
       return openCanvasHome();
     case "__swap":
       return runPendingSwap(positional[0]!, positional[1]!);
+    case "__rescue": {
+      const rescueHome = positional[1] ?? home;
+      return runUpdateRescue(positional[0]!, rescueHome, process.argv[1] ?? cliPath, rescueLog(rescueHome));
+    }
     case undefined:
     case "help":
     case "-h":
-      return console.log(HELP);
+      return console.log(helpText());
     default:
       console.error(`未知命令 "${command}"\n`);
-      console.log(HELP);
+      console.log(helpText());
       process.exitCode = 1;
   }
 }
