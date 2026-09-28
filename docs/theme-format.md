@@ -74,6 +74,8 @@ my-theme/
 | 强调 | `primary`, `primary-foreground`, `brand`, `accent`, `ring` |
 | 终端 | `terminal-bg`, `terminal-fg`, `terminal-cursor`, `terminal-*` |
 
+`colors` 里写完整的自定义属性名时，不限于 `--color-*`。ZCode 的 `rounded-*` 类都编译成 `var(--radius-*)`，所以把 `--radius`、`--radius-xs` … `--radius-3xl`（以及 `--workspace-panel-radius`、`--sidebar-border-radius`、`--tab-panel-border-radius`）设成 `"0"` 就是全直角界面；`rounded-full` 不走这些变量，头像、开关、状态点仍然是圆的。`endfield` 主题就是这样做的。
+
 ## 透明度是怎么算的
 
 `glass.opacity` 小于 1 时，Canvas 把下面三层表面调成半透明：

@@ -57,6 +57,8 @@ zcode-canvas restore                         # 还原官方 app.asar
 | `aurora` | 极光壁纸 + 深蓝配色，青色强调，适合暗色模式 |
 | `sakura` | 樱粉渐变 + 粉色强调，适合亮色模式 |
 | `eye-care` | 偏暖低亮的护眼配色，亮色和暗色都有；配色改编自 [zcode-eye-care](https://github.com/VoodooB0Ys/zcode-eye-care) |
+| `endfield` | 终末地官网风格：墨黑底、谷地黄强调、等高线地形壁纸、全直角，适合暗色模式；改编自 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield) |
+| `endfield-wuling` | 同一风格的武陵青版本：奶油纸底、青色等高线，适合亮色模式 |
 
 自己写主题请看 [docs/theme-format.md](docs/theme-format.md)。
 
@@ -103,6 +105,8 @@ npm run build
 
 `scripts/sandbox.mjs` 可以启动一份官方 ZCode 的副本，身份和数据目录完全隔离，配合 `scripts/cdp.mjs` 截图验证，不会碰到你正在使用的 ZCode。这两个脚本只用于开发，Canvas 本身不使用 CDP。
 
+`endfield` 两套主题的壁纸和启动字标由 `npm run build:endfield` 生成，生成结果已提交；只有想换地形（`--seed <n>`）或改排版时才需要重新运行。
+
 ## 致谢
 
 以下社区项目在 ZCode 开源之前就做出了外观增强，是本项目的重要参考：
@@ -113,6 +117,8 @@ npm run build
 [zcode-mod-kit](https://github.com/Adam1290-0/zcode-mod-kit)、
 [zcode-miku-theme](https://github.com/foambai/zcode-miku-theme)、
 [dream-work-theme](https://github.com/xxxhh336/dream-work-theme)。
+
+`endfield` 主题改编自 DSH 主题 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield)（MIT），详见 [NOTICE.md](NOTICE.md)。
 
 本项目与 ZCode 官方无关。修改 `app.asar` 的风险由使用者自行承担。
 
