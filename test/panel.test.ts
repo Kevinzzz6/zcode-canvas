@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -12,8 +13,12 @@ import {
   readPanelData,
   registerPanelHandlers,
   storedWallpaperPath,
+  wallpaperDisplayName,
   type PanelIpc,
 } from "../src/runtime/panel.ts";
+
+/** The content tag importWallpaperFile puts into stored wallpaper names. */
+const tag = (data: string): string => createHash("sha256").update(data).digest("hex").slice(0, 12);
 
 /** A fake canvas home with one built-in theme (wallpapered) and one user theme. */
 function makeHome(): string {
@@ -109,22 +114,32 @@ test("unknown themes and renderer-supplied wallpaper paths are rejected", () => 
   assert.throws(() => applyPanelInput(config, "nonsense" as unknown as Record<string, unknown>, home), /invalid panel request/);
 });
 
-test("importWallpaperFile copies picked images into the store under a whitelisted name", () => {
+test("importWallpaperFile stores images under content-tagged names", () => {
   const home = makeHome();
   const source = join(home, "picker", "My Wallpaper.png");
   mkdirSync(join(home, "picker"), { recursive: true });
   writeFileSync(source, "png-data");
   const destination = importWallpaperFile(source, home);
-  assert.equal(destination, join(home, "imports", "wallpaper", "My-Wallpaper.png"));
+  assert.equal(destination, join(home, "imports", "wallpaper", `My-Wallpaper-${tag("png-data")}.png`));
   assert.equal(readFileSync(destination, "utf8"), "png-data");
-  // Re-picking the same name replaces the stored copy instead of piling up files.
-  writeFileSync(source, "png-data-2");
+  // Re-picking the same content reuses the stored file.
   assert.equal(importWallpaperFile(source, home), destination);
-  assert.equal(readFileSync(destination, "utf8"), "png-data-2");
-  assert.deepEqual(readdirSync(join(home, "imports", "wallpaper")), ["My-Wallpaper.png"]);
+  // Different content under the same name never overwrites what is already stored.
+  writeFileSync(source, "png-data-2");
+  const second = importWallpaperFile(source, home);
+  assert.notEqual(second, destination);
+  assert.equal(readFileSync(destination, "utf8"), "png-data");
+  assert.equal(readFileSync(second, "utf8"), "png-data-2");
+  assert.deepEqual(readdirSync(join(home, "imports", "wallpaper")).sort(), [basename(destination), basename(second)].sort());
   // A name with no safe characters left falls back to a fixed one.
   writeFileSync(join(home, "picker", "壁纸.png"), "x");
-  assert.equal(basename(importWallpaperFile(join(home, "picker", "壁纸.png"), home)), "wallpaper.png");
+  assert.equal(basename(importWallpaperFile(join(home, "picker", "壁纸.png"), home)), `wallpaper-${tag("x")}.png`);
+});
+
+test("wallpaperDisplayName hides the content tag, old names pass through", () => {
+  assert.equal(wallpaperDisplayName(`pic-${tag("z")}.jpg`), "pic.jpg");
+  assert.equal(wallpaperDisplayName("old-style.jpg"), "old-style.jpg");
+  assert.equal(wallpaperDisplayName("no-extension"), "no-extension");
 });
 
 test("importWallpaperFile rejects non-image formats", () => {
@@ -135,7 +150,7 @@ test("importWallpaperFile rejects non-image formats", () => {
     assert.throws(() => importWallpaperFile(join(home, "picker", name), home), { message: /不支持的壁纸格式/ }, name);
   }
   writeFileSync(join(home, "picker", "UPPER.PNG"), "x");
-  assert.ok(importWallpaperFile(join(home, "picker", "UPPER.PNG"), home).endsWith("UPPER.png"));
+  assert.ok(importWallpaperFile(join(home, "picker", "UPPER.PNG"), home).endsWith(`UPPER-${tag("x")}.png`));
   assert.throws(() => importWallpaperFile(join(home, "picker", "missing.png"), home), /不可用/);
 });
 
@@ -151,16 +166,18 @@ test("a symlink inside the store pointing out of it is refused, not written thro
   const home = makeHome();
   mkdirSync(join(home, "imports", "wallpaper"), { recursive: true });
   writeFileSync(join(home, "secret.txt"), "config data");
+  const source = join(home, "picker", "evil.png");
+  mkdirSync(join(home, "picker"), { recursive: true });
+  writeFileSync(source, "x");
   try {
     symlinkSync(join(home, "secret.txt"), join(home, "imports", "wallpaper", "evil.png"));
+    // The name importWallpaperFile will actually compute for this content.
+    symlinkSync(join(home, "secret.txt"), join(home, "imports", "wallpaper", `evil-${tag("x")}.png`));
   } catch (error) {
     return t.skip(`symlinks need privileges here: ${String(error)}`);
   }
   assert.throws(() => storedWallpaperPath(home, "evil.png"), { message: /escapes the store/ });
-  // Importing a file whose stored name collides with the symlink fails closed.
-  const source = join(home, "picker", "evil.png");
-  mkdirSync(join(home, "picker"), { recursive: true });
-  writeFileSync(source, "x");
+  // Importing a file whose stored (content-tagged) name collides with the symlink fails closed.
   assert.throws(() => importWallpaperFile(source, home), { message: /escapes the store/ });
   assert.equal(readFileSync(join(home, "secret.txt"), "utf8"), "config data");
 });
@@ -177,7 +194,11 @@ test("writeConfigAtomic replaces the config fully and leaves no temp files behin
 });
 
 /** Registers the handlers on a stub ipc and returns the captured listeners. */
-function harness(home: string, pickWallpaperFile: () => Promise<string | null>) {
+function harness(
+  home: string,
+  pickWallpaperFile: () => Promise<string | null>,
+  isPanelSender: (event: unknown) => boolean = () => true,
+) {
   const listeners = new Map<string, (event: unknown, value?: unknown) => unknown>();
   const ipc: PanelIpc = { handle: (channel, listener) => listeners.set(channel, listener) };
   const reloads: string[] = [];
@@ -188,6 +209,7 @@ function harness(home: string, pickWallpaperFile: () => Promise<string | null>) 
     log: (message) => logged.push(message),
     pickWallpaperFile,
     reload: () => reloads.push("reload"),
+    isPanelSender,
   });
   return { listeners, reloads, logged };
 }
@@ -199,19 +221,38 @@ test("the pick handler stores the chosen file as wallpaper.image and keeps the t
   mkdirSync(join(home, "picker"), { recursive: true });
   writeFileSync(source, "webp");
   const { listeners, reloads } = harness(home, async () => source);
+  const stored = join(home, "imports", "wallpaper", `chosen-${tag("webp")}.webp`);
 
   const picked = (await listeners.get(CHANNEL_PANEL_PICK_WALLPAPER)!(undefined)) as { canceled: boolean; file: string };
   assert.deepEqual(picked, { canceled: false, file: "chosen.webp" });
   const config = readConfig(home);
   assert.equal(config.theme, "mine"); // picking a wallpaper must not clear the theme
-  assert.equal(config.wallpaper?.image, join(home, "imports", "wallpaper", "chosen.webp"));
+  assert.equal(config.wallpaper?.image, stored);
   assert.equal(reloads.length, 1);
 
   // A canceled dialog changes nothing.
   const canceling = harness(home, async () => null);
   assert.deepEqual(await canceling.listeners.get(CHANNEL_PANEL_PICK_WALLPAPER)!(undefined), { canceled: true });
-  assert.equal(readConfig(home).wallpaper?.image, join(home, "imports", "wallpaper", "chosen.webp"));
+  assert.equal(readConfig(home).wallpaper?.image, stored);
   assert.equal(canceling.reloads.length, 0);
+});
+
+test("requests that do not come from the panel window are refused and change nothing", async () => {
+  const home = makeHome();
+  withWallpaperOverride(home);
+  const stranger = harness(home, async () => null, () => false);
+  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER]) {
+    await assert.rejects(
+      async () => {
+        await stranger.listeners.get(channel)!({ sender: { id: 1 } });
+      },
+      /refused/,
+      channel,
+    );
+  }
+  assert.ok(stranger.logged.length >= 3, "every refusal is logged");
+  assert.equal(stranger.reloads.length, 0);
+  assert.equal(readConfig(home).theme, "mine"); // nothing was executed
 });
 
 test("the apply handler writes the merged config to disk and triggers a reload", async () => {
@@ -243,7 +284,14 @@ test("a channel that cannot be registered is logged and skipped; the rest still 
     },
   };
   const reloads: string[] = [];
-  registerPanelHandlers({ home, ipc, log: (m) => logged.push(m), pickWallpaperFile: async () => null, reload: () => reloads.push("r") });
+  registerPanelHandlers({
+    home,
+    ipc,
+    log: (m) => logged.push(m),
+    pickWallpaperFile: async () => null,
+    reload: () => reloads.push("r"),
+    isPanelSender: () => true,
+  });
   assert.equal(logged.length, 1);
   assert.match(logged[0]!, /panel-get unavailable/);
   assert.ok(listeners.has(CHANNEL_PANEL_APPLY), "apply still registered");

@@ -4,7 +4,8 @@
 // The panel exposes exactly two concepts. `theme` selects a whole look; a wallpaper picked with the
 // native dialog overrides only the theme's wallpaper. Clearing the wallpaper (config.wallpaper =
 // null) lets the theme's own wallpaper show again; clearing the theme never touches the wallpaper.
-import { copyFileSync, existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, resolve, sep } from "node:path";
 import { listThemes, readConfig, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type ThemeManifest, type WallpaperFit } from "../shared/look.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER } from "../shared/protocol.ts";
@@ -33,7 +34,10 @@ function themeHasWallpaper(manifest: ThemeManifest): boolean {
 export function readPanelData(home: string): PanelData {
   const config = readConfig(home);
   const themes = listThemes(home);
-  const file = typeof config.wallpaper?.image === "string" && config.wallpaper.image ? basename(config.wallpaper.image) : null;
+  const file =
+    typeof config.wallpaper?.image === "string" && config.wallpaper.image
+      ? wallpaperDisplayName(basename(config.wallpaper.image))
+      : null;
   const active = config.theme ? themes.find((entry) => entry.id === config.theme) : undefined;
   return {
     config,
@@ -118,6 +122,17 @@ function safeName(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+/** Short content digest in a stored wallpaper's name, so two different images that happen to share
+ *  a file name never overwrite each other — and re-picking the same image reuses the same file. */
+function contentTag(file: string): string {
+  return createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 12);
+}
+
+/** The stored name without its content tag, e.g. "pic-1a2b….jpg" → "pic.jpg". Old names pass through. */
+export function wallpaperDisplayName(fileName: string): string {
+  return fileName.replace(/-[0-9a-f]{12}(?=\.[^.]+$)/, "");
+}
+
 /** Copy a main-process-picked image into the Canvas store and return its stored path. */
 export function importWallpaperFile(source: string, home: string): string {
   const extension = extname(source).toLowerCase();
@@ -127,9 +142,10 @@ export function importWallpaperFile(source: string, home: string): string {
   mkdirSync(resolve(home, "imports", "wallpaper"), { recursive: true });
   // Strip the extension by its original spelling, so PIC.PNG becomes pic's "PIC.png", not "PIC.PNG.png".
   const stem = safeName(basename(source, extname(source))) || "wallpaper";
-  // Throws on a hostile name or a symlink already sitting at the destination.
-  const destination = storedWallpaperPath(home, `${stem}${extension}`);
-  copyFileSync(source, destination);
+  // The content tag is part of the name, so a file already sitting there has the same bytes and
+  // the copy can be skipped. Throws on a hostile name or a symlink planted at the destination.
+  const destination = storedWallpaperPath(home, `${stem}-${contentTag(source)}${extension}`);
+  if (!existsSync(destination)) copyFileSync(source, destination);
   return destination;
 }
 
@@ -144,6 +160,9 @@ export interface PanelHandlersDeps {
   /** Opens the native picker in the main process; resolves null when the user cancels. */
   pickWallpaperFile: () => Promise<string | null>;
   reload: () => void;
+  /** True when a request comes from the panel window's own webContents; everything else is refused.
+   *  ipcMain handlers are process-wide, so without this any page in ZCode could drive the panel. */
+  isPanelSender: (event: unknown) => boolean;
 }
 
 /**
@@ -151,10 +170,16 @@ export interface PanelHandlersDeps {
  * cannot be registered (or a handler that fails on a request) is logged and skipped — the base
  * theming runtime keeps running either way.
  */
-export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reload }: PanelHandlersDeps): void {
+export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reload, isPanelSender }: PanelHandlersDeps): void {
   const register = (channel: string, listener: (event: unknown, value?: unknown) => unknown): void => {
     try {
-      ipc.handle(channel, listener);
+      ipc.handle(channel, (event, value) => {
+        if (!isPanelSender(event)) {
+          log(`panel ${channel}: refused a request that did not come from the panel window`);
+          throw new Error("refused: sender is not the appearance panel");
+        }
+        return listener(event, value);
+      });
     } catch (error) {
       log(`panel ${channel} unavailable: ${String(error)}`);
     }
@@ -177,6 +202,6 @@ export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reloa
     config.wallpaper = { ...(config.wallpaper ?? {}), image: destination };
     writeConfigAtomic(home, config);
     reload();
-    return { canceled: false, file: basename(destination) };
+    return { canceled: false, file: wallpaperDisplayName(basename(destination)) };
   });
 }
