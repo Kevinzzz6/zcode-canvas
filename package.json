@@ -23,7 +23,8 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "build:endfield": "node scripts/build-endfield.mjs"
   },
   "keywords": [
     "zcode",
