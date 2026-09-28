@@ -7,6 +7,8 @@
 
 export const CHANNEL_GET = "zcode-canvas:get";
 export const CHANNEL_CSS = "zcode-canvas:css";
+export const CHANNEL_PANEL_GET = "zcode-canvas:panel-get";
+export const CHANNEL_PANEL_APPLY = "zcode-canvas:panel-apply";
 
 export const PROTOCOL_VERSION = 1;
 

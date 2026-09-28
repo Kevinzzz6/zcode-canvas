@@ -161,6 +161,7 @@ export const paths = {
   runtime: (home: string) => join(home, "runtime"),
   builtinThemes: (home: string) => join(home, "runtime", "themes"),
   log: (home: string) => join(home, "runtime.log"),
+  openRequest: (home: string) => join(home, ".open-panel"),
 };
 
 export const DEFAULT_CONFIG: CanvasConfig = { enabled: true, theme: null };

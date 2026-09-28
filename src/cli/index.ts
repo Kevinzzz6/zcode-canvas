@@ -57,7 +57,7 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
   wallpaper import <目录> [--preview]
                          导入本地 Wallpaper Engine 静态图片（预览必须显式选择）
   css                    打印当前生成的 CSS
-  open                   在文件管理器中打开 ~/.zcode-canvas
+  open                   打开 Canvas 外观中心（ZCode 运行中）或配置目录
 
 通用参数:
   --zcode <目录>          ZCode 安装目录（默认自动查找；macOS 也可传 ZCode.app 所在目录）
@@ -293,6 +293,22 @@ function importWallpaperCommand(projectDir: string | undefined, preview: boolean
   console.log("  已更新 wallpaper.image；其它配置保持不变。预览图不会被当作原图。 ");
 }
 
+function openCanvasHome() {
+  mkdirSync(home, { recursive: true });
+  let running = false;
+  try {
+    running = isZCodeRunning(locateZCode());
+  } catch {
+    // If ZCode cannot be located, fall back to opening the Canvas directory.
+  }
+  if (running) {
+    writeFileSync(paths.openRequest(home), `${Date.now()}\n`);
+    console.log("✓ 已请求运行中的 ZCode 打开 Canvas 外观中心。");
+    return;
+  }
+  revealInFileManager(home);
+}
+
 function printCss() {
   const { look, warnings } = loadLook(home, [packagedThemes]);
   for (const warning of warnings) console.error(`! ${warning}`);
@@ -329,8 +345,7 @@ async function main() {
     case "css":
       return printCss();
     case "open":
-      mkdirSync(home, { recursive: true });
-      return revealInFileManager(home);
+      return openCanvasHome();
     case "__swap":
       return runPendingSwap(positional[0]!, positional[1]!);
     case undefined:
