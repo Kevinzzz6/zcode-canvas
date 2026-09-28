@@ -32,9 +32,48 @@ const SURFACES: ReadonlyArray<readonly [token: string, tier: Tier]> = [
 
 const BLURRED_SURFACES = [".bg-background", ".bg-panel", ".bg-card", ".bg-input"];
 
-/** Rejects values that could break out of a declaration or pull in remote resources. */
-export function isSafeCssValue(value: string): boolean {
-  return !/[;{}<>\n\r]|url\s*\(|@import|expression\s*\(/i.test(value);
+/** Color token names: "sidebar" or "--color-sidebar". Mirrors colorTokens in theme.schema.json. */
+const COLOR_TOKEN = /^(--color-)?[a-z0-9][a-z0-9-]*$/;
+
+/** The grammar of a value, by where it is used. "image" adds gradients to "color", "vars" is the
+ *  escape hatch and may also quote font stacks and reference other properties. */
+export type CssValueKind = "color" | "image" | "position" | "vars";
+
+const MATH_FUNCTIONS = ["calc", "min", "max", "clamp"];
+const COLOR_FUNCTIONS = ["rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "color-mix", "light-dark"];
+const GRADIENT_FUNCTIONS = [
+  "linear-gradient",
+  "radial-gradient",
+  "conic-gradient",
+  "repeating-linear-gradient",
+  "repeating-radial-gradient",
+  "repeating-conic-gradient",
+];
+
+/** Functions a value may call, by kind. Nothing that can load a resource (url, image, image-set,
+ *  …) is on any list; the only url()s in the sheet are the local files cssUrl() builds below. */
+const VALUE_FUNCTIONS: Record<CssValueKind, ReadonlySet<string>> = {
+  color: new Set([...MATH_FUNCTIONS, ...COLOR_FUNCTIONS]),
+  image: new Set([...MATH_FUNCTIONS, ...COLOR_FUNCTIONS, ...GRADIENT_FUNCTIONS]),
+  position: new Set(MATH_FUNCTIONS),
+  vars: new Set([...MATH_FUNCTIONS, ...COLOR_FUNCTIONS, ...GRADIENT_FUNCTIONS, "var"]),
+};
+
+/**
+ * Theme and config values end up verbatim inside declarations of the generated sheet, so each field
+ * accepts a grammar instead of being screened against a blacklist: no character that could escape a
+ * declaration, encode a CSS escape or start an at-rule, quotes only where vars need them, and every
+ * function call must be on the field's list. schema/theme.schema.json mirrors these rules; the test
+ * suite asserts the two agree.
+ */
+export function isSafeCssValue(value: string, kind: CssValueKind): boolean {
+  if (/[\u0000-\u001f\u007f;{}<>@`\\]/.test(value)) return false;
+  if (kind !== "vars" && /["']/.test(value)) return false;
+  const functions = VALUE_FUNCTIONS[kind];
+  for (const call of value.matchAll(/([A-Za-z][\w-]*)?\(/g)) {
+    if (!call[1] || !functions.has(call[1])) return false;
+  }
+  return true;
 }
 
 export function tokenProperty(key: string): string {
@@ -118,10 +157,10 @@ function wallpaperRules(
   wallpaper: ResolvedWallpaper,
   root: string,
   mode: Mode | null,
-  safe: (label: string, value: string) => boolean,
+  safe: (label: string, value: string, kind: CssValueKind) => boolean,
 ): string[] {
   const label = mode ? `wallpaper.${mode}` : "wallpaper";
-  if (!safe(`${label}.position`, wallpaper.position)) return [];
+  if (!safe(`${label}.position`, wallpaper.position, "position")) return [];
   const rules: string[] = [];
   const url = cssUrl(wallpaper.image);
   const size = { cover: "cover", contain: "contain", fill: "100% 100%", tile: "auto", center: "auto" }[wallpaper.fit];
@@ -142,7 +181,7 @@ function wallpaperRules(
   }
   if (wallpaper.dim > 0) {
     const pct = Math.round(wallpaper.dim * 1000) / 10;
-    const overlay = wallpaper.overlay && safe(`${label}.overlay`, wallpaper.overlay) ? wallpaper.overlay : null;
+    const overlay = wallpaper.overlay && safe(`${label}.overlay`, wallpaper.overlay, "color") ? wallpaper.overlay : null;
     rules.push(block(`${root} body::after`, [...layer, "inset: 0", "transition: opacity 0.3s ease"]));
     // ZCode sets its theme classes only after the first paint, so the mode is unknown on the
     // startup screen; the overlay stays hidden until the UI fades in.
@@ -158,8 +197,8 @@ function wallpaperRules(
 export function buildCss(look: ResolvedLook): CssResult {
   const warnings: string[] = [];
   const rules: string[] = [];
-  const safe = (label: string, value: string): boolean => {
-    if (isSafeCssValue(value)) return true;
+  const safe = (label: string, value: string, kind: CssValueKind): boolean => {
+    if (isSafeCssValue(value, kind)) return true;
     warnings.push(`ignored unsafe value for ${label}`);
     return false;
   };
@@ -168,11 +207,16 @@ export function buildCss(look: ResolvedLook): CssResult {
     const declarations: string[] = [];
     const colors = look.colors[mode];
     for (const [key, value] of Object.entries(colors)) {
-      if (key.startsWith("--") && !key.startsWith("--color-")) warnings.push(`colors.${mode}.${key} is not a color token; move it to vars`);
-      if (safe(`colors.${mode}.${key}`, value)) declarations.push(`${tokenProperty(key)}: ${value}`);
+      // Keys reach the sheet too, so they are as much a security boundary as values; JSON.stringify
+      // keeps a hostile key from smuggling control characters into the warning.
+      if (!COLOR_TOKEN.test(key)) {
+        warnings.push(`ignored colors.${mode}.${JSON.stringify(key)}: not a color token, move it to vars`);
+        continue;
+      }
+      if (safe(`colors.${mode}.${key}`, value, "color")) declarations.push(`${tokenProperty(key)}: ${value}`);
     }
     const accent = look.accent[mode];
-    if (accent && safe(`accent.${mode}`, accent)) {
+    if (accent && safe(`accent.${mode}`, accent, "color")) {
       // Tokens the theme sets explicitly in `colors` win over the ones derived from the accent.
       const derived: Record<(typeof ACCENT_TOKENS)[number], string> = {
         primary: accent,
@@ -185,8 +229,8 @@ export function buildCss(look: ResolvedLook): CssResult {
       }
     }
     for (const [key, value] of Object.entries(look.vars[mode])) {
-      if (!/^--[\w-]+$/.test(key)) warnings.push(`ignored vars.${mode}.${key}: custom property names start with --`);
-      else if (safe(`vars.${mode}.${key}`, value)) declarations.push(`${key}: ${value}`);
+      if (!/^--[\w-]+$/.test(key)) warnings.push(`ignored vars.${mode}.${JSON.stringify(key)}: custom property names start with --`);
+      else if (safe(`vars.${mode}.${key}`, value, "vars")) declarations.push(`${key}: ${value}`);
     }
     rules.push(block(MODE_SELECTOR[mode], declarations));
   }
@@ -234,7 +278,7 @@ export function buildCss(look: ResolvedLook): CssResult {
   }
 
   const startup = look.startup;
-  if (startup.background && safe("startup.background", startup.background)) {
+  if (startup.background && safe("startup.background", startup.background, "image")) {
     rules.push(block("body #loading", [`background: ${startup.background}`]));
   }
   if (startup.logo) {

@@ -34,11 +34,11 @@
     "accent": {
       "description": "Fills primary / brand / ring / primary-foreground wherever colors leaves them unset.",
       "oneOf": [
-        { "$ref": "#/$defs/cssValue" },
+        { "$ref": "#/$defs/colorValue" },
         {
           "type": "object",
           "additionalProperties": false,
-          "properties": { "dark": { "$ref": "#/$defs/cssValue" }, "light": { "$ref": "#/$defs/cssValue" } }
+          "properties": { "dark": { "$ref": "#/$defs/colorValue" }, "light": { "$ref": "#/$defs/colorValue" } }
         }
       ]
     },
@@ -86,7 +86,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "background": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cssValue" }] },
+        "background": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/imageValue" }], "description": "Color or gradient." },
         "logo": { "oneOf": [{ "type": "null" }, { "type": "string" }], "description": "Image replacing the ZCode logo tile." },
         "logoSize": { "type": "number", "minimum": 16, "maximum": 512 },
         "animation": { "enum": ["pop", "fade", "none"] }
@@ -97,12 +97,28 @@
     "mode": { "enum": ["dark", "light"] },
     "cssValue": {
       "type": "string",
-      "not": { "pattern": "[;{}<>\\n\\r]|[uU][rR][lL]\\s*\\(|@[iI][mM][pP][oO][rR][tT]|[eE][xX][pP][rR][eE][sS][sS][iI][oO][nN]\\s*\\(" }
+      "description": "A vars value. Quotes are allowed (font stacks); function calls must be on the allowlist, lowercase.",
+      "not": { "pattern": "[;{}<>@`\\\\]|[\\u0000-\\u001f\\u007f]|(?<![\\w-])(?!(?:calc|min|max|clamp|rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|linear-gradient|radial-gradient|conic-gradient|repeating-linear-gradient|repeating-radial-gradient|repeating-conic-gradient|var)\\()[\\w-]*\\(" }
+    },
+    "colorValue": {
+      "type": "string",
+      "description": "A color: hex, named color, or color functions like rgb()/hsl()/oklch()/color-mix(), lowercase.",
+      "not": { "pattern": "[;{}<>@`'\"\\\\]|[\\u0000-\\u001f\\u007f]|(?<![\\w-])(?!(?:calc|min|max|clamp|rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\\()[\\w-]*\\(" }
+    },
+    "imageValue": {
+      "type": "string",
+      "description": "A color or a gradient.",
+      "not": { "pattern": "[;{}<>@`'\"\\\\]|[\\u0000-\\u001f\\u007f]|(?<![\\w-])(?!(?:calc|min|max|clamp|rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|linear-gradient|radial-gradient|conic-gradient|repeating-linear-gradient|repeating-radial-gradient|repeating-conic-gradient)\\()[\\w-]*\\(" }
+    },
+    "positionValue": {
+      "type": "string",
+      "description": "A background-position: keywords, lengths, percentages, calc().",
+      "not": { "pattern": "[;{}<>@`'\"\\\\]|[\\u0000-\\u001f\\u007f]|(?<![\\w-])(?!(?:calc|min|max|clamp)\\()[\\w-]*\\(" }
     },
     "colorTokens": {
       "type": "object",
       "propertyNames": { "pattern": "^(--color-)?[a-z0-9][a-z0-9-]*$" },
-      "additionalProperties": { "$ref": "#/$defs/cssValue" }
+      "additionalProperties": { "$ref": "#/$defs/colorValue" }
     },
     "customProperties": {
       "type": "object",
@@ -114,10 +130,10 @@
       "properties": {
         "image": { "oneOf": [{ "type": "null" }, { "type": "string" }], "description": "png / jpg / webp / avif / gif / svg, relative to the theme folder." },
         "fit": { "enum": ["cover", "contain", "fill", "tile", "center"] },
-        "position": { "$ref": "#/$defs/cssValue" },
+        "position": { "$ref": "#/$defs/positionValue" },
         "blur": { "type": "number", "minimum": 0, "maximum": 200 },
         "dim": { "type": "number", "minimum": 0, "maximum": 1 },
-        "overlay": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cssValue" }] }
+        "overlay": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/colorValue" }] }
       }
     },
     "wallpaper": {

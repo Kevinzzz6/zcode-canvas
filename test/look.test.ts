@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { buildCss, contrastForeground, isSafeCssValue, tokenProperty } from "../src/shared/css.ts";
+import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, type CssValueKind } from "../src/shared/css.ts";
 import { checkManifest, listThemes, loadLook, resolveLook, type ThemeEntry } from "../src/shared/look.ts";
 
 const theme = (manifest: ThemeEntry["manifest"], dir = "/themes/t"): ThemeEntry => ({ id: "t", dir, builtin: true, manifest });
@@ -53,12 +53,37 @@ test("glass makes surfaces translucent on #root without self-referencing tokens"
 });
 
 test("unsafe values are dropped with a warning", () => {
-  assert.equal(isSafeCssValue("red; } body { display:none"), false);
-  assert.equal(isSafeCssValue("url(https://evil)"), false);
-  assert.equal(isSafeCssValue("color-mix(in oklab, #fff 60%, transparent)"), true);
+  assert.equal(isSafeCssValue("red; } body { display:none", "color"), false);
+  assert.equal(isSafeCssValue("url(https://evil)", "color"), false);
+  assert.equal(isSafeCssValue("color-mix(in oklab, #fff 60%, transparent)", "color"), true);
   const result = buildCss(resolveLook({ colors: { dark: { panel: "red;}" } } }, null, "/home"));
   assert.doesNotMatch(result.css, /red;\}/);
   assert.equal(result.warnings.length, 1);
+});
+
+test("value escapes and resource loaders are rejected, not just literal url(", () => {
+  for (const kind of ["color", "image", "position", "vars"] as const) {
+    assert.equal(isSafeCssValue("ur\\6c(https://evil)", kind), false, `backslash escape via ${kind}`);
+    assert.equal(isSafeCssValue("image-set(\"https://evil\" 1x)", kind), false, `image-set via ${kind}`);
+    assert.equal(isSafeCssValue("cross-fade(url(x) 50%, red)", kind), false, `cross-fade via ${kind}`);
+    assert.equal(isSafeCssValue("@import \"evil\"", kind), false, `at-rule via ${kind}`);
+  }
+  assert.equal(isSafeCssValue("linear-gradient(90deg, #fff500 0 10px, #101110 10px)", "image"), true);
+  assert.equal(isSafeCssValue("linear-gradient(90deg, #fff500 0 10px, #101110 10px)", "color"), false);
+  assert.equal(isSafeCssValue("calc(50% - 20px)", "position"), true);
+  assert.equal(isSafeCssValue("red", "position"), true);
+  assert.equal(isSafeCssValue("\"Segoe UI\", sans-serif", "vars"), true);
+  assert.equal(isSafeCssValue("\"Segoe UI\", sans-serif", "color"), false);
+  assert.equal(isSafeCssValue("var(--color-primary)", "vars"), true);
+  assert.equal(isSafeCssValue("var(--color-primary)", "color"), false);
+});
+
+test("hostile color keys cannot break out of the declaration", () => {
+  const key = "x; } body { background: url(https://evil); color: red";
+  const { css, warnings } = buildCss(resolveLook({ colors: { dark: { [key]: "#101010" } } }, null, "/home"));
+  assert.equal(css, "");
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0]!, /ignored colors\.dark\./);
 });
 
 test("contrast foreground picks black on light accents and white on dark ones", () => {
@@ -168,7 +193,7 @@ test("vars apply to both modes, per-mode entries refine them, and bad names are 
   assert.match(css, /html:root\.dark \{[^}]*--edge: 2px;/);
   assert.match(css, /html:root:not\(\.dark\) \{[^}]*--edge: 1px;/);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0]!, /vars\.dark\.not-a-var/);
+  assert.match(warnings[0]!, /vars\.dark\."not-a-var"/);
 });
 
 test("vars: null clears every mode; vars.dark / vars.light null clear only that mode", () => {
@@ -190,9 +215,11 @@ test("vars: null clears every mode; vars.dark / vars.light null clear only that 
   }
 });
 
-test("colors warns about custom properties that are not color tokens", () => {
-  const { warnings } = buildCss(resolveLook({ colors: { dark: { "--radius-xl": "0", "--color-panel": "#000" } } }, null, "/home"));
-  assert.deepEqual(warnings, ["colors.dark.--radius-xl is not a color token; move it to vars"]);
+test("colors keys that are not color tokens are ignored with a warning", () => {
+  const { css, warnings } = buildCss(resolveLook({ colors: { dark: { "--radius-xl": "0", "--color-panel": "#000" } } }, null, "/home"));
+  assert.deepEqual(warnings, ['ignored colors.dark."--radius-xl": not a color token, move it to vars']);
+  assert.match(css, /--color-panel: #000;/);
+  assert.doesNotMatch(css, /--radius-xl/);
 });
 
 test("wallpaper: shared fields, per-mode refinement, per-mode removal, config override", () => {
@@ -236,5 +263,48 @@ test("every built-in theme validates against schema/theme.schema.json and declar
     assert.ok(validate(entry.manifest), `${entry.id}: ${JSON.stringify(validate.errors)}`);
     assert.equal(entry.manifest.format, 1, entry.id);
     assert.deepEqual(checkManifest(entry.id, entry.manifest), [], entry.id);
+  }
+});
+
+// schema/theme.schema.json mirrors isSafeCssValue per field kind; this corpus keeps the two honest.
+test("the schema's value defs accept and reject exactly what isSafeCssValue does", () => {
+  const schema = JSON.parse(readFileSync(fileURLToPath(new URL("../schema/theme.schema.json", import.meta.url)), "utf8")) as object;
+  const ajv = new Ajv2020({ allErrors: true });
+  const defFor: Record<CssValueKind, string> = { color: "colorValue", image: "imageValue", position: "positionValue", vars: "cssValue" };
+  const corpus = [
+    "#101418",
+    "rgba(150, 190, 255, 0.12)",
+    "color-mix(in oklab, #d5deef 62%, transparent)",
+    "linear-gradient(90deg, #fff500 0 10px, #101110 10px)",
+    "repeating-conic-gradient(from 0deg, #000 0 10deg, #fff 10deg 20deg)",
+    "center",
+    "right bottom",
+    "30% 50%",
+    "calc(50% - 20px)",
+    '"Segoe UI", sans-serif',
+    "var(--color-primary)",
+    "transparent",
+    "red; } body { display:none",
+    "url(https://evil)",
+    "ur\\6c(https://evil)",
+    "image-set(\"https://evil\" 1x)",
+    "cross-fade(url(x) 50%, red)",
+    "@import \"evil\"",
+    "element(#shot)",
+    "var (--x)",
+    "xrgb(1)",
+    "RGB(1, 2, 3)",
+    "hsl(10 50% 50% / 0.5)",
+    "oklch(0.5 0.1 200)",
+  ];
+  for (const kind of ["color", "image", "position", "vars"] as const) {
+    const validate = ajv.compile({ $ref: `#/$defs/${defFor[kind]}`, $defs: (schema as { $defs: object }).$defs });
+    for (const value of corpus) {
+      assert.equal(
+        validate(value),
+        isSafeCssValue(value, kind),
+        `${kind} value ${JSON.stringify(value)}: schema says ${validate(value)}, runtime says ${isSafeCssValue(value, kind)}`,
+      );
+    }
   }
 });
