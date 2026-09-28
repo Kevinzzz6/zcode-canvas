@@ -1,13 +1,13 @@
 // Runs inside ZCode's Electron main process, loaded by the bootstrap before ZCode's own entry.
 // Anything thrown here must never reach ZCode: every entry point is guarded.
 import { app, BrowserWindow, ipcMain, session, type WebContents } from "electron";
-import { appendFileSync, renameSync, statSync, watch } from "node:fs";
+import { appendFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, type Material } from "../shared/look.ts";
+import { CHANNEL_CSS, CHANNEL_GET, encodeState } from "../shared/protocol.ts";
+import { watchHome } from "./watch.ts";
 
-const CHANNEL_GET = "zcode-canvas:get";
-const CHANNEL_CSS = "zcode-canvas:css";
 const OFFICIAL_MATERIAL: Material = "acrylic";
 
 const home = canvasHome();
@@ -70,7 +70,7 @@ function reload() {
   for (const contents of renderers) {
     if (contents.isDestroyed()) continue;
     try {
-      if (cssChanged) contents.send(CHANNEL_CSS, state.css);
+      if (cssChanged) contents.send(CHANNEL_CSS, encodeState(state.css));
       if (materialChanged) applyMaterial(contents);
     } catch (error) {
       log(`update failed: ${String(error)}`);
@@ -85,10 +85,10 @@ try {
     try {
       track(event.sender);
       if (state.material !== OFFICIAL_MATERIAL) applyMaterial(event.sender);
-      event.returnValue = state.css;
+      event.returnValue = encodeState(state.css);
     } catch (error) {
       log(`get failed: ${String(error)}`);
-      event.returnValue = "";
+      event.returnValue = encodeState("");
     }
   });
 
@@ -105,12 +105,10 @@ try {
     }
   });
 
-  let timer: NodeJS.Timeout | undefined;
-  watch(home, { recursive: true }, (_event, file) => {
-    if (file && /runtime\.log/.test(String(file))) return;
-    clearTimeout(timer);
-    timer = setTimeout(reload, 150);
-  });
+  // The payload is versioned (shared/protocol.ts): after a runtime upgrade on disk, pages loaded
+  // afterwards run the new preload against this still-running old main.
+
+  watchHome(home, reload, log);
 
   log(`runtime loaded in ZCode ${app.getVersion()} (css ${state.css.length} bytes, material ${state.material})`);
 } catch (error) {
