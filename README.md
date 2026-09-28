@@ -90,7 +90,7 @@ zcode-canvas wallpaper import ./my-project --preview
 
 ### 外观中心
 
-运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**，或按 `Ctrl/Cmd+Shift+O` 打开外观中心。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。面板可切换主题、已导入的静态壁纸，并调整铺放、模糊和压暗；点击应用后会沿用现有热更新机制实时刷新主窗口，不需要重启 ZCode。
+运行中的 ZCode 可以通过菜单里的 **ZCode Canvas → 打开外观中心**，或按 `Ctrl/Cmd+Alt+Shift+O` 打开外观中心。也可以运行 `zcode-canvas open` 请求当前 ZCode 打开它。面板可切换主题、已导入的静态壁纸，并调整铺放、模糊和压暗；点击应用后会沿用现有热更新机制实时刷新主窗口，不需要重启 ZCode。
 
 官方更新会整体替换 `app.asar`，补丁随之消失，ZCode 会恢复原样，不会出错。重新执行一次 `zcode-canvas apply` 即可，只需几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
 

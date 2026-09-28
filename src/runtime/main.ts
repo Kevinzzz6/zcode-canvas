@@ -8,7 +8,7 @@ import { canvasHome, listThemes, loadLook, paths, readConfig, type Material } fr
 import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, encodeState } from "../shared/protocol.ts";
 import { watchHome } from "./watch.ts";
 
-const OFFICIAL_MATERIAL: Material = "acrylic";
+const PANEL_ACCELERATOR = "CommandOrControl+Alt+Shift+O";
 
 const home = canvasHome();
 const logFile = paths.log(home);
@@ -65,7 +65,7 @@ function injectMenu() {
   if (!menu || menu.items.some((item) => item.label === "ZCode Canvas")) return;
   const canvas = new MenuItem({
     label: "ZCode Canvas",
-    submenu: [{ label: "打开外观中心", accelerator: "CommandOrControl+Shift+O", click: openPanel }],
+    submenu: [{ label: "打开外观中心", accelerator: PANEL_ACCELERATOR, click: openPanel }],
   });
   menu.append(canvas);
   Menu.setApplicationMenu(menu);
@@ -222,7 +222,7 @@ try {
         filePath: join(__dirname, "preload.cjs"),
       });
       scheduleMenuInjection();
-      globalShortcut.register("CommandOrControl+Shift+O", openPanel);
+      globalShortcut.register(PANEL_ACCELERATOR, openPanel);
       consumeOpenRequest();
     } catch (error) {
       log(`preload registration failed: ${String(error)}`);
