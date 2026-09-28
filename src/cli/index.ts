@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { themeSchemaProblems } from "./schema.ts";
+import { importWallpaper } from "./wallpaper.ts";
 import { buildCss } from "../shared/css.ts";
 import {
   canvasHome,
@@ -52,6 +53,8 @@ const HELP = `ZCode Canvas ${packageVersion(packageRoot)} — 官方 ZCode 的�
   set <键> <值>           修改单项设置，如: set wallpaper.image ~/pic.jpg
   unset <键>              删除设置（可以是整组，如 wallpaper），回到主题默认值
   new <id>               以当前设置新建一个主题（会复制用到的图片）
+  wallpaper import <目录> [--preview]
+                         导入本地 Wallpaper Engine 静态图片（预览必须显式选择）
   css                    打印当前生成的 CSS
   open                   在文件管理器中打开 ~/.zcode-canvas
 
@@ -278,6 +281,15 @@ function newTheme(id: string | undefined) {
   console.log(`  编辑 theme.json 后运行 \`zcode-canvas use ${id}\`。`);
 }
 
+function importWallpaperCommand(projectDir: string | undefined, preview: boolean) {
+  if (!projectDir) throw new Error("用法: zcode-canvas wallpaper import <项目目录> [--preview]");
+  const result = importWallpaper(projectDir, home, preview);
+  writeConfig(result.config);
+  console.log(`✓ 已导入静态图片: ${result.destination}`);
+  console.log(`  来源: ${result.source}`);
+  console.log("  已更新 wallpaper.image；其它配置保持不变。预览图不会被当作原图。 ");
+}
+
 function printCss() {
   const { look, warnings } = loadLook(home, [packagedThemes]);
   for (const warning of warnings) console.error(`! ${warning}`);
@@ -308,6 +320,9 @@ async function main() {
       return set(positional[0], undefined, true);
     case "new":
       return newTheme(positional[0]);
+    case "wallpaper":
+      if (positional[0] !== "import") throw new Error("用法: zcode-canvas wallpaper import <项目目录> [--preview]");
+      return importWallpaperCommand(positional[1], flags.preview === true);
     case "css":
       return printCss();
     case "open":

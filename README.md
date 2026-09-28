@@ -54,6 +54,8 @@ zcode-canvas set glass.opacity 0.6           # 界面半透明
 zcode-canvas set accent "#7c5cff"            # 强调色
 zcode-canvas unset wallpaper                 # 删除设置，回到主题默认值
 zcode-canvas new my-theme                    # 把当前设置存成主题（会复制用到的图片）
+zcode-canvas wallpaper import <项目目录>      # 导入 project.json type=image 的静态原图
+zcode-canvas wallpaper import <项目目录> --preview # 显式导入 scene/video/web 的静态预览图
 zcode-canvas status                          # 查看安装状态
 zcode-canvas restore                         # 还原官方 app.asar
 ```
@@ -74,7 +76,16 @@ zcode-canvas restore                         # 还原官方 app.asar
 
 自己写主题请看 [docs/theme-format.md](docs/theme-format.md)。主题格式目前是 format 1，之后只做向后兼容的新增；[schema/theme.schema.json](schema/theme.schema.json) 可以让编辑器补全和校验 `theme.json`，`zcode-canvas use` / `themes` 也会按同一份 schema 完整校验第三方主题。
 
-## ZCode 更新之后
+## Wallpaper Engine 本地导入
+
+只读取用户明确指定的本地项目目录和 `project.json`，不会联网、解包 pkg、执行 JS/exe 或修改 Wallpaper Engine 目录。`type: image` 仅导入其入口图片；`scene`、`video`、`web` 默认拒绝，只有显式加 `--preview` 才导入 `preview` 静态图。支持 png、jpg/jpeg、webp、avif、svg；GIF 等可能动画的格式不称为静态图。选中的文件会复制到 Canvas 自有的 `~/.zcode-canvas/imports/wallpaper/`，并仅更新 `wallpaper.image`，保留其它配置。
+
+```sh
+zcode-canvas wallpaper import "D:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\项目目录"
+zcode-canvas wallpaper import ./my-project --preview
+```
+
+项目目录为必要参数；不会为了导入而扫描或修改 Steam Workshop。
 
 官方更新会整体替换 `app.asar`，补丁随之消失，ZCode 会恢复原样，不会出错。重新执行一次 `zcode-canvas apply` 即可，只需几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
 
