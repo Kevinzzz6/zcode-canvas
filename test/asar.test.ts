@@ -34,6 +34,31 @@ test("patch points main at the bootstrap and keeps original files readable", () 
   assert.equal(readFile(archive, BOOT_PATH).toString(), bootSource("out/main/index.js"));
   assert.equal(readFile(archive, "out/main/index.js").toString(), "console.log('zcode');\n");
   assert.match(bootSource("out/main/index.js"), /await import\("\.\.\/main\/index\.js"\);/);
+  // The recorded hash is an independent measurement of the pristine file, not our own
+  // re-serialization of it — that is what makes restore's byte-for-byte check meaningful.
+  assert.equal(state.restore?.originalHash, createHash("sha256").update(readFileSync(original)).digest("hex"));
+});
+
+test("a fresh patch is refused when the archive header does not round-trip byte for byte", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const original = makeArchive(dir);
+  // Same entries and data, but the header JSON is written with indentation: a valid archive our
+  // compact re-serialization cannot reproduce, so a byte-identical restore would be impossible.
+  const archive = readArchive(original);
+  const spaced = Buffer.from(JSON.stringify(archive.header, null, 2), "utf8");
+  const aligned = (spaced.length + 3) & ~3;
+  const prefix = Buffer.alloc(16);
+  prefix.writeUInt32LE(4, 0);
+  prefix.writeUInt32LE(8 + aligned, 4);
+  prefix.writeUInt32LE(4 + aligned, 8);
+  prefix.writeUInt32LE(spaced.length, 12);
+  const spacedAsar = join(dir, "spaced.asar");
+  writeFileSync(spacedAsar, Buffer.concat([prefix, spaced, Buffer.alloc(aligned - spaced.length), readFileSync(original).subarray(archive.dataOffset)]));
+  assert.equal(inspect(readArchive(spacedAsar)).patched, false);
+
+  assert.throws(() => writePatched(readArchive(spacedAsar), join(dir, "p.asar"), "0.0.0-test"), /round-trip byte for byte/);
+  // The archive itself is untouched and still readable.
+  assert.equal(inspect(readArchive(spacedAsar)).patched, false);
 });
 
 test("restore reproduces the original archive byte for byte", () => {

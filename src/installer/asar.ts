@@ -362,6 +362,18 @@ export function writePatched(source: AsarArchive, target: string, canvasVersion:
   // `source.path` (which is the patched archive here): an older build once stamped the patched
   // file's hash into this field, which permanently broke restore's byte-for-byte check.
   const originalHash = pristineArchiveHash(source, base);
+  if (!previous) {
+    // A fresh patch is the only moment the real file can be compared independently: require the
+    // archive to round-trip through our re-serialized header byte for byte. If it does not, a
+    // restore could never reproduce the official file either, so the patch is refused rather
+    // than shipping a guarantee the record cannot back up.
+    const measured = sha256File(source.path);
+    if (measured !== originalHash)
+      throw new Error(
+        `${source.path}: header does not round-trip byte for byte (${measured} vs ${originalHash}). ` +
+          "Canvas could not guarantee a byte-identical restore for this archive; refusing to patch it.",
+      );
+  }
   const plan = planPatch(source, base, canvasVersion, originalHash, PATCH_FORMAT);
   writeArchive(source, target, plan.header, plan.dataSize, plan.extra);
 }
