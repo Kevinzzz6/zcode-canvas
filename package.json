@@ -26,7 +26,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "prepack": "npm run build",
     "build:endfield": "node scripts/build-endfield.mjs"
   },
@@ -41,6 +41,7 @@
     "ajv": "^8.20.0",
     "electron": "^41.0.3",
     "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }
 }
