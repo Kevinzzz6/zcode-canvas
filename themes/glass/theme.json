@@ -1,5 +1,5 @@
 {
   "name": "原生毛玻璃",
-  "description": "保留官方配色，透出 Windows 原生 acrylic 材质",
+  "description": "保留官方配色，透出系统原生毛玻璃（Windows acrylic / macOS vibrancy / Linux 透明窗口）",
   "glass": { "material": "acrylic", "opacity": 0.55, "blur": 0 }
 }

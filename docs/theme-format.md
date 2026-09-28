@@ -43,7 +43,8 @@ my-theme/
   },
 
   "glass": {
-    "material": "acrylic",      // acrylic | mica | tabbed | none（Windows 窗口材质）
+    "material": "acrylic",      // acrylic | mica | tabbed | none。Windows 用原生材质；
+                                // macOS 一律映射为原生毛玻璃，none 关闭；Linux 忽略此项
     "opacity": 0.6,             // 主内容区的最终不透明度 0~1；1 = 官方外观
     "blur": 16                  // 主内容区的背景模糊半径，px
   },
@@ -80,9 +81,11 @@ my-theme/
 
 `glass.opacity` 小于 1 时，Canvas 把下面三层表面调成半透明：
 
-- **外框层**：`background-win-alt`、`background-alt`、`sidebar`，不透明度为 `opacity × 0.7`；
+- **外框层**：`background-win-alt`、`background-alt`、`sidebar`，不透明度为 `opacity × 0.7`。ZCode 在 Windows 和 Linux 上外框用 `background-win-alt`，macOS 用 `background-alt`（叠在原生 vibrancy 上），两层 token 都会被调整；
 - **内容层**：`background`、`panel`、`header`、`tab`、`terminal-bg` 等。它们叠在外框层上面，所以自身的不透明度是反推出来的，保证两层叠加后正好等于 `opacity`；
 - **凸起层**：`card`、`input`、`secondary`，比内容层更不透明一些，保证文字清晰。
+
+透出来的东西按平台不同：Windows 是 acrylic/mica 材质，macOS 是原生 vibrancy，Linux 是窗口本身的透明（需要合成器支持；不支持时毛玻璃退化为纯色，壁纸不受影响，因为壁纸绘制在页面内部）。
 
 弹出层（菜单、对话框、提示）挂在 `#root` 外面，始终保持不透明。
 
@@ -92,7 +95,7 @@ my-theme/
 
 ## 调试
 
-```powershell
+```sh
 zcode-canvas css      # 打印当前生成的 CSS
 ```
 

@@ -9,34 +9,46 @@
 - **启动画面**：可改背景、换 logo 图片、换动画
 - **热更新**：修改配置或主题文件后，正在运行的 ZCode 约 1 秒内刷新，不用重启
 
-> 当前只支持 Windows。已在 ZCode 3.14.3（Electron 41）上验证。
+> 支持 Windows、Linux 和 macOS。已在 ZCode 3.14.3（Electron 41）上验证。
+>
+> | 平台 | 安装格式 | 说明 |
+> |---|---|---|
+> | Windows 10/11 | NSIS 安装版 | 已验证 |
+> | Fedora / RHEL / 其他 rpm 系 | `.rpm` | 已验证路径（`/opt/ZCode`，apply 需要 sudo） |
+> | Debian / Ubuntu 等 deb 系、Arch 系 pacman | `.deb` / `.pacman` | 走同样的 `/opt` 布局，未逐一验证 |
+> | macOS | `.dmg`（拖入 /Applications） | apply 后自动做 ad-hoc 重签名 |
+>
+> **AppImage 不支持**：它的 `app.asar` 封在只读 squashfs 里，无法打补丁。Linux 用户请安装 rpm / deb / pacman 包（Fedora：`sudo dnf install ./ZCode-*.x86_64.rpm`）。
 
 ## 安装
 
 需要 Node.js 20 或更高版本。
 
-```powershell
+```sh
 git clone https://github.com/Kevinzzz6/zcode-canvas.git
 cd zcode-canvas
 npm install
 npm run build
 npm link            # 之后可以直接用 zcode-canvas 命令；不想 link 就用 node dist/cli.js
-zcode-canvas apply
 ```
+
+然后打补丁：
+
+- **Windows**：`zcode-canvas apply`。ZCode 装在 Program Files 这类受保护目录时，需要用管理员身份运行终端。
+- **Linux（rpm/deb/pacman）**：`sudo zcode-canvas apply`。ZCode 装在 `/opt/ZCode`（root 所有），补丁需要 root 权限；运行时和配置仍会装到**你的**用户目录（Canvas 会识别 `SUDO_USER`），不会放到 `/root` 下。若 `sudo` 找不到命令，用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。
+- **macOS**：`zcode-canvas apply`（ZCode.app 不可写时加 `sudo`）。**请先启动过一次 ZCode 再 apply**：修改 `.app` 会破坏官方代码签名，Canvas 会自动做 ad-hoc 重签名（`codesign --force --deep --sign -`）；已被系统放行的应用重签后可以正常启动，但保存的登录凭据可能失效，需要重新登录。`restore` 会把 `app.asar` 逐字节还原，但签名仍停留在 ad-hoc——想完全回到官方签名，重新安装一次 ZCode 即可。
 
 `apply` 会把运行时装到 `~/.zcode-canvas/`，然后给 ZCode 打补丁。
 
 - **ZCode 没在运行**：立即生效，启动 ZCode 即可看到效果。
-- **ZCode 正在运行**：`app.asar` 被占用，Canvas 会先准备好补丁文件，再启动一个后台小进程等待。请从托盘**彻底退出** ZCode（关闭窗口只会缩到托盘），后台进程会自动换上补丁，之后重新启动 ZCode 即可。所以直接在 ZCode 自带的终端里执行也没问题。
-
-如果 ZCode 装在 Program Files 这类受保护目录，需要用管理员身份运行终端。
+- **ZCode 正在运行**（仅 Windows 会出现）：`app.asar` 被占用，Canvas 会先准备好补丁文件，再启动一个后台小进程等待。请从托盘**彻底退出** ZCode（关闭窗口只会缩到托盘），后台进程会自动换上补丁，之后重新启动 ZCode 即可。所以直接在 ZCode 自带的终端里执行也没问题。Linux 和 macOS 上文件可以随时替换，正在运行的 ZCode 不受影响，重启后生效。
 
 ## 使用
 
-```powershell
+```sh
 zcode-canvas themes                          # 列出主题
 zcode-canvas use aurora                      # 切换主题，ZCode 实时刷新
-zcode-canvas set wallpaper.image D:\pic.jpg  # 换壁纸
+zcode-canvas set wallpaper.image ~/pic.jpg   # 换壁纸
 zcode-canvas set wallpaper.dim 0.4           # 壁纸压暗
 zcode-canvas set glass.opacity 0.6           # 界面半透明
 zcode-canvas set accent "#7c5cff"            # 强调色
@@ -52,8 +64,8 @@ zcode-canvas restore                         # 还原官方 app.asar
 
 | id | 说明 |
 |---|---|
-| `glass` | 保留官方配色，透出 Windows 原生 acrylic 毛玻璃 |
-| `mica` | 保留官方配色，改用 Windows 11 Mica 材质 |
+| `glass` | 保留官方配色，透出系统原生毛玻璃（Windows acrylic / macOS vibrancy / Linux 透明窗口） |
+| `mica` | 保留官方配色，改用 Windows 11 Mica 材质（仅 Windows，其他平台效果等同 `glass`） |
 | `aurora` | 极光壁纸 + 深蓝配色，青色强调，适合暗色模式 |
 | `sakura` | 樱粉渐变 + 粉色强调，适合亮色模式 |
 | `eye-care` | 偏暖低亮的护眼配色，亮色和暗色都有；配色改编自 [zcode-eye-care](https://github.com/VoodooB0Ys/zcode-eye-care) |
@@ -85,25 +97,25 @@ ZCode 开源后，很多事情可以直接从源码里确认，不必再靠猜�
    - 还原所需的记录 `out/zcode-canvas/restore.json`。
 
    引导脚本先加载 `~/.zcode-canvas/runtime/main.cjs`，再导入 ZCode 原来的入口。运行时加载失败不会影响 ZCode 启动。
-2. **运行时在 ZCode 的主进程里运行**。它给默认 session 注册一个预加载脚本，在页面首帧之前用 `webFrame.insertCSS` 注入样式，所以启动画面也能改。样式不写进 DOM，React 碰不到它，也就不需要 MutationObserver。窗口材质通过 `setBackgroundMaterial` 切换。配置文件变化时通过 IPC 推送新样式。
+2. **运行时在 ZCode 的主进程里运行**。它给默认 session 注册一个预加载脚本，在页面首帧之前用 `webFrame.insertCSS` 注入样式，所以启动画面也能改。样式不写进 DOM，React 碰不到它，也就不需要 MutationObserver。窗口材质按平台切换：Windows 用 `setBackgroundMaterial`，macOS 用 `setVibrancy`，Linux 窗口本身就是透明的不用切换。配置文件变化时通过 IPC 推送新样式。
 3. **样式只依赖 ZCode 源码里明确的结构**：
    - `--color-*` 设计 token 和 `.dark` / `.theme-zai-*` 主题 class；
    - 窗口外框 `[data-desktop-window-frame]`；
    - 启动画面的 `#loading` 和 `body.zcode-startup-ready`。
 
-   Windows 主窗口本身就是 acrylic 材质，只是被一层不透明的外框背景盖住了，所以毛玻璃效果只需要把这些 token 调成半透明。
+   Windows 主窗口本身就是 acrylic 材质、macOS 是原生 vibrancy、Linux 是透明窗口，只是被一层不透明（macOS 为半不透明）的外框背景盖住了，所以毛玻璃效果只需要把这些 token 调成半透明。Linux 的窗口透明依赖合成器；不支持时毛玻璃退化为纯色，壁纸不受影响（壁纸绘制在页面内部）。
 4. **壁纸直接用 `file://` 地址**。主界面是没有 CSP 的 `file://` 页面，因此不需要 data URL、本地 HTTP 服务或 CDP。
 5. **不开任何调试端口，没有常驻进程**。从开始菜单、任务栏、协议链接或托盘启动 ZCode 都会生效。
 
 ## 开发
 
-```powershell
+```sh
 npm run typecheck
 npm test
 npm run build
 ```
 
-`scripts/sandbox.mjs` 可以启动一份官方 ZCode 的副本，身份和数据目录完全隔离，配合 `scripts/cdp.mjs` 截图验证，不会碰到你正在使用的 ZCode。这两个脚本只用于开发，Canvas 本身不使用 CDP。
+`scripts/sandbox.mjs` 可以启动一份官方 ZCode 的副本，身份和数据目录完全隔离，配合 `scripts/cdp.mjs` 截图验证，不会碰到你正在使用的 ZCode。这两个脚本目前只在 Windows 上可用，仅用于开发，Canvas 本身不使用 CDP。
 
 `endfield` 两套主题的壁纸和启动字标由 `npm run build:endfield` 生成，生成结果已提交；只有想换地形（`--seed <n>`）或改排版时才需要重新运行。
 
