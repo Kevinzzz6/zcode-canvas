@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
-import type { CanvasConfig } from "../shared/look.ts";
+import { readConfig, writeConfigAtomic, type CanvasConfig } from "../shared/look.ts";
 
 const STATIC_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg"]);
 const PREVIEW_TYPES = new Set(["scene", "video", "web"]);
@@ -63,13 +64,15 @@ export function importWallpaper(projectDirectory: string, home: string, preview 
 
   const importDir = join(home, "imports", "wallpaper");
   mkdirSync(importDir, { recursive: true });
-  const destination = join(importDir, `${safeName(basename(projectDir))}-${safeName(basename(source))}`);
-  copyFileSync(source, destination);
+  // The content tag keeps a re-import with different bytes from silently overwriting the old file,
+  // and an unchanged re-import from duplicating it.
+  const tag = createHash("sha256").update(readFileSync(source)).digest("hex").slice(0, 12);
+  const extension = extname(source).toLowerCase();
+  const destination = join(importDir, `${safeName(basename(projectDir))}-${safeName(basename(source, extension))}-${tag}${extension}`);
+  if (!existsSync(destination)) copyFileSync(source, destination);
 
-  const configPath = join(home, "config.json");
-  const config: CanvasConfig = existsSync(configPath)
-    ? { enabled: true, theme: null, ...(JSON.parse(readFileSync(configPath, "utf8")) as CanvasConfig) }
-    : { enabled: true, theme: null };
+  const config = readConfig(home);
   config.wallpaper = { ...(config.wallpaper ?? {}), image: destination };
+  writeConfigAtomic(home, config);
   return { source, destination, config };
 }
