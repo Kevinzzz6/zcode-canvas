@@ -44,10 +44,16 @@ function compute(previous: State): State {
 let state = compute({ css: "", material: OFFICIAL_MATERIAL });
 const renderers = new Set<WebContents>();
 
+/**
+ * Windows switches between acrylic/mica/tabbed via setBackgroundMaterial. macOS already ships with
+ * "under-window" vibrancy, so only "none" (turning it off) differs from the official look. Linux
+ * windows are plain transparent surfaces; there is nothing to switch.
+ */
 function applyMaterial(contents: WebContents) {
-  if (process.platform !== "win32") return;
   const win = BrowserWindow.fromWebContents(contents);
-  if (win && !win.isDestroyed()) win.setBackgroundMaterial(state.material);
+  if (!win || win.isDestroyed()) return;
+  if (process.platform === "win32") win.setBackgroundMaterial(state.material);
+  else if (process.platform === "darwin") win.setVibrancy(state.material === "none" ? null : "under-window");
 }
 
 function track(contents: WebContents) {
