@@ -23,6 +23,11 @@ export const CANVAS_DIR = "zcode-canvas";
 export const BOOT_PATH = `out/${CANVAS_DIR}/boot.mjs`;
 const BLOCK_SIZE = 4 * 1024 * 1024;
 
+/** Version of the patch layout this build writes: bootstrap, restore record fields, header shape.
+ *  Bump when what a patch consists of changes, so archives patched by older builds are rewritten
+ *  once on the next apply. Bootstrap changes alone are detected by comparing its content. */
+export const PATCH_FORMAT = 1;
+
 export interface AsarEntry {
   files?: Record<string, AsarEntry>;
   size?: number;
@@ -46,6 +51,8 @@ export interface AsarArchive {
 
 export interface RestoreRecord {
   canvasVersion: string;
+  /** Layout version of the patch itself; absent in records written before this field existed. */
+  patchFormat?: number;
   originalMain: string;
   originalDataSize: number;
   /** sha256 of the pristine archive, verified after a restore. Absent in records written before this field existed. */
@@ -60,22 +67,38 @@ export interface PatchState {
   restore: RestoreRecord | null;
 }
 
+/** Reads until `buffer` is full; a regular file can only short-read at its end, so hitting one
+ *  means the archive is truncated, not that the read should be retried. */
+function readFully(fd: number, buffer: Buffer, position: number): void {
+  for (let filled = 0; filled < buffer.length; ) {
+    const read = readSync(fd, buffer, filled, buffer.length - filled, position + filled);
+    if (read === 0) throw new Error(`unexpected end of archive at byte ${position + filled}`);
+    filled += read;
+  }
+}
+
 export function readArchive(path: string): AsarArchive {
   const fd = openSync(path, "r");
   try {
+    const size = fstatSync(fd).size;
     const prefix = Buffer.alloc(16);
-    readSync(fd, prefix, 0, 16, 0);
+    if (size >= 16) readFully(fd, prefix, 0);
     const headerPickleSize = prefix.readUInt32LE(4);
     const jsonLength = prefix.readUInt32LE(12);
-    const json = Buffer.alloc(jsonLength);
-    readSync(fd, json, 0, jsonLength, 16);
     const dataOffset = 8 + headerPickleSize;
-    return {
-      path,
-      header: JSON.parse(json.toString("utf8")) as AsarHeader,
-      dataOffset,
-      dataSize: fstatSync(fd).size - dataOffset,
-    };
+    // Guards against a truncated or non-asar file (a failed ZCode update, a wrong --zcode dir):
+    // its garbage sizes would otherwise become a giant allocation or a confusing parse error.
+    if (size < 16 || jsonLength < 2 || 16 + jsonLength > size || dataOffset < 16 + jsonLength || dataOffset > size)
+      throw new Error(`${path} is not a readable asar archive (${size} bytes, header ${headerPickleSize}, json ${jsonLength})`);
+    const json = Buffer.alloc(jsonLength);
+    readFully(fd, json, 16);
+    let header: AsarHeader;
+    try {
+      header = JSON.parse(json.toString("utf8")) as AsarHeader;
+    } catch {
+      throw new Error(`${path} has an unreadable asar header`);
+    }
+    return { path, header, dataOffset, dataSize: size - dataOffset };
   } finally {
     closeSync(fd);
   }
@@ -89,10 +112,14 @@ function findEntry(header: AsarHeader, file: string): AsarEntry | undefined {
 
 export function readEntry(archive: AsarArchive, entry: AsarEntry): Buffer {
   if (entry.unpacked || entry.size == null || entry.offset == null) throw new Error("entry is not packed in the archive");
+  const offset = Number(entry.offset);
+  const { size } = entry;
+  if (!Number.isInteger(offset) || !Number.isInteger(size) || offset < 0 || size < 0 || offset + size > archive.dataSize)
+    throw new Error(`entry ${entry.offset}+${size} lies outside the data of ${archive.path}`);
   const fd = openSync(archive.path, "r");
   try {
-    const buffer = Buffer.alloc(entry.size);
-    readSync(fd, buffer, 0, entry.size, archive.dataOffset + Number(entry.offset));
+    const buffer = Buffer.alloc(size);
+    readFully(fd, buffer, archive.dataOffset + offset);
     return buffer;
   } finally {
     closeSync(fd);
@@ -151,6 +178,16 @@ function pristine(archive: AsarArchive, restore: RestoreRecord | null): { header
   return { header, dataSize: restore.originalDataSize };
 }
 
+/** The patch owns out/zcode-canvas. If the original archive already ships anything there (another
+ *  tool, a future ZCode), patching would silently shadow it and restoring would drop it for good. */
+function assertCanvasDirFree(base: { header: AsarHeader }, path: string): void {
+  if (base.header.files.out?.files?.[CANVAS_DIR])
+    throw new Error(
+      `${path} already contains ${CANVAS_DIR}/, so a Canvas patch would overwrite it and a restore would lose it. ` +
+        "Refusing to touch the archive; reinstall ZCode or point --zcode at another install.",
+    );
+}
+
 export function bootSource(originalMain: string): string {
   const specifier = posix.relative(posix.dirname(BOOT_PATH), originalMain);
   return `// ZCode Canvas bootstrap: loads the appearance runtime from the user's profile, then ZCode.
@@ -200,8 +237,16 @@ interface PatchPlan {
 }
 
 /** Everything a Canvas patch of `source`'s pristine state consists of. Fully deterministic, so
- *  running it twice — once here, once when the patch was written — yields identical bytes. */
-function planPatch(source: AsarArchive, base: { header: AsarHeader; dataSize: number }, canvasVersion: string, originalHash?: string): PatchPlan {
+ *  running it twice — once here, once when the patch was written — yields identical bytes. The
+ *  record fields are taken from the caller: verification replays them from an existing record,
+ *  fresh patches stamp the current constants. */
+function planPatch(
+  source: AsarArchive,
+  base: { header: AsarHeader; dataSize: number },
+  canvasVersion: string,
+  originalHash: string | undefined,
+  patchFormat: number | undefined,
+): PatchPlan {
   const originalPackage = readEntry(source, base.header.files["package.json"]!);
   const pkg = JSON.parse(originalPackage.toString("utf8")) as { main?: string };
   const originalMain = pkg.main ?? "index.js";
@@ -210,6 +255,7 @@ function planPatch(source: AsarArchive, base: { header: AsarHeader; dataSize: nu
   const boot = Buffer.from(bootSource(originalMain), "utf8");
   const record: RestoreRecord = {
     canvasVersion,
+    patchFormat,
     originalMain,
     originalDataSize: base.dataSize,
     originalHash,
@@ -252,7 +298,7 @@ function plannedArchiveHash(source: AsarArchive, plan: { header: AsarHeader; dat
 
 /** True when the archive on disk is exactly the patch its restore record describes. */
 function untouchedSincePatch(source: AsarArchive, base: { header: AsarHeader; dataSize: number }, restore: RestoreRecord): boolean {
-  const plan = planPatch(source, base, restore.canvasVersion, restore.originalHash);
+  const plan = planPatch(source, base, restore.canvasVersion, restore.originalHash, restore.patchFormat);
   return sha256File(source.path) === plannedArchiveHash(source, plan);
 }
 
@@ -290,9 +336,10 @@ function writeArchive(source: AsarArchive, target: string, header: AsarHeader, d
 export function writePatched(source: AsarArchive, target: string, canvasVersion: string) {
   const previous = inspect(source).restore;
   const base = pristine(source, previous);
+  assertCanvasDirFree(base, source.path);
   if (previous && !untouchedSincePatch(source, base, previous)) throw modifiedAfterPatchError(source.path);
   const originalHash = previous?.originalHash ?? sha256File(source.path);
-  const plan = planPatch(source, base, canvasVersion, originalHash);
+  const plan = planPatch(source, base, canvasVersion, originalHash, PATCH_FORMAT);
   writeArchive(source, target, plan.header, plan.dataSize, plan.extra);
 }
 
@@ -301,9 +348,16 @@ export function writeRestored(source: AsarArchive, target: string) {
   const previous = inspect(source).restore;
   if (!previous) throw new Error(`${source.path} carries no Canvas patch`);
   const base = pristine(source, previous);
+  assertCanvasDirFree(base, source.path);
   if (!untouchedSincePatch(source, base, previous)) throw modifiedAfterPatchError(source.path);
   writeArchive(source, target, base.header, base.dataSize, []);
   // The caller only moves the result over the real app.asar once this function returned.
   if (previous.originalHash && sha256File(target) !== previous.originalHash)
     throw new Error(`restoring ${source.path} did not reproduce the original archive byte for byte`);
+}
+
+/** True when the patch already on disk is exactly what this build would write — same bootstrap
+ *  content and patch format — so apply can skip rewriting app.asar. */
+export function isPatchCurrent(bootOnDisk: string, state: PatchState): boolean {
+  return state.patched && state.restore?.patchFormat === PATCH_FORMAT && bootOnDisk === bootSource(state.main);
 }

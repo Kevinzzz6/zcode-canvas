@@ -1,40 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { BOOT_PATH, bootSource, inspect, readArchive, readFile, writePatched, writeRestored } from "../src/installer/asar.ts";
-
-/** Builds a minimal archive the same way @electron/asar lays it out. */
-function makeArchive(dir: string): string {
-  const files: Array<[string, Buffer]> = [
-    ["package.json", Buffer.from(JSON.stringify({ name: "@zcode/desktop", version: "9.9.9", type: "module", main: "out/main/index.js" }))],
-    ["out/main/index.js", Buffer.from("console.log('zcode');\n")],
-    ["out/renderer/index.html", Buffer.from("<!doctype html><div id=root></div>")],
-  ];
-  const header: { files: Record<string, unknown> } = { files: {} };
-  let offset = 0;
-  for (const [path, data] of files) {
-    const parts = path.split("/");
-    let node = header as { files: Record<string, unknown> };
-    for (const part of parts.slice(0, -1)) {
-      node.files[part] ??= { files: {} };
-      node = node.files[part] as { files: Record<string, unknown> };
-    }
-    node.files[parts.at(-1)!] = { size: data.length, offset: String(offset) };
-    offset += data.length;
-  }
-  const json = Buffer.from(JSON.stringify(header));
-  const aligned = (json.length + 3) & ~3;
-  const prefix = Buffer.alloc(16);
-  prefix.writeUInt32LE(4, 0);
-  prefix.writeUInt32LE(8 + aligned, 4);
-  prefix.writeUInt32LE(4 + aligned, 8);
-  prefix.writeUInt32LE(json.length, 12);
-  const file = join(dir, "app.asar");
-  writeFileSync(file, Buffer.concat([prefix, json, Buffer.alloc(aligned - json.length), ...files.map(([, d]) => d)]));
-  return file;
-}
+import {
+  BOOT_PATH,
+  bootSource,
+  inspect,
+  isPatchCurrent,
+  PATCH_FORMAT,
+  readArchive,
+  readEntry,
+  readFile,
+  writePatched,
+  writeRestored,
+  type PatchState,
+} from "../src/installer/asar.ts";
+import { makeArchive } from "./make-archive.ts";
 
 test("patch points main at the bootstrap and keeps original files readable", () => {
   const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
@@ -101,4 +84,108 @@ test("an archive modified after patching is refused instead of corrupted", () =>
   const restored = join(dir, "restored.asar");
   writeRestored(readArchive(patched), restored);
   assert.deepEqual(readFileSync(restored), readFileSync(original));
+});
+
+test("an archive that already ships out/zcode-canvas is refused, not shadowed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const original = makeArchive(dir, [["out/zcode-canvas/their-file.js", Buffer.from("someone else's payload\n")]]);
+  assert.throws(() => writePatched(readArchive(original), join(dir, "p.asar"), "0.0.0-test"), /already contains zcode-canvas/);
+  // Nothing was written and the original is untouched.
+  assert.equal(inspect(readArchive(original)).patched, false);
+});
+
+test("patch records carry the patch format; older records count as outdated", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const patched = join(dir, "patched.asar");
+  writePatched(readArchive(makeArchive(dir)), patched, "0.0.0-test");
+  const state = inspect(readArchive(patched));
+  assert.equal(state.restore?.patchFormat, PATCH_FORMAT);
+  assert.equal(isPatchCurrent(readFile(readArchive(patched), BOOT_PATH).toString("utf8"), state), true);
+
+  // A record from before the field existed (undefined) must not pass as current…
+  const legacy: PatchState = { ...state, restore: { ...state.restore!, patchFormat: undefined } };
+  assert.equal(isPatchCurrent(readFile(readArchive(patched), BOOT_PATH).toString("utf8"), legacy), false);
+  // …and neither must a bootstrap this build would no longer write.
+  assert.equal(isPatchCurrent("different bootstrap", state), false);
+  // An unpatched archive is never current.
+  mkdirSync(join(dir, "fresh-"), { recursive: true });
+  const pristineState = inspect(readArchive(makeArchive(join(dir, "fresh-"))));
+  assert.equal(isPatchCurrent(bootSource(pristineState.main), pristineState), false);
+});
+
+test("re-patching a patch from before patchFormat rewrites it with the current format", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const once = join(dir, "once.asar");
+  writePatched(readArchive(makeArchive(dir)), once, "0.0.0-test");
+
+  // Rebuild what an older Canvas wrote: same archive, but the restore record lacks patchFormat.
+  // The header is re-serialized around the shorter record; data offsets are region-relative, so a
+  // header of different length still yields a valid archive.
+  const archive = readArchive(once);
+  const restoreEntry = archive.header.files.out!.files!["zcode-canvas"]!.files!["restore.json"]!;
+  const record = JSON.parse(readEntry(archive, restoreEntry).toString("utf8")) as Record<string, unknown>;
+  delete record.patchFormat;
+  const legacyContent = Buffer.from(JSON.stringify(record, null, 2), "utf8");
+  const hash = createHash("sha256").update(legacyContent).digest("hex");
+  const header = structuredClone(archive.header);
+  // Re-derive the entry the way a patch plan does, integrity included, for the shorter record.
+  header.files.out!.files!["zcode-canvas"]!.files!["restore.json"] = {
+    size: legacyContent.length,
+    offset: restoreEntry.offset,
+    integrity: { algorithm: "SHA256", hash, blockSize: 4194304, blocks: [hash] },
+  };
+  const json = Buffer.from(JSON.stringify(header));
+  const aligned = (json.length + 3) & ~3;
+  const prefix = Buffer.alloc(16);
+  prefix.writeUInt32LE(4, 0);
+  prefix.writeUInt32LE(8 + aligned, 4);
+  prefix.writeUInt32LE(4 + aligned, 8);
+  prefix.writeUInt32LE(json.length, 12);
+  const beforeRestore = readFileSync(once).subarray(archive.dataOffset, archive.dataOffset + archive.dataSize - restoreEntry.size!);
+  const legacyAsar = join(dir, "legacy.asar");
+  writeFileSync(legacyAsar, Buffer.concat([prefix, json, Buffer.alloc(aligned - json.length), beforeRestore, legacyContent]));
+
+  // The legacy patch still verifies as untouched, and re-patching upgrades its record.
+  const legacyState = inspect(readArchive(legacyAsar));
+  assert.equal(legacyState.restore?.patchFormat, undefined);
+  assert.equal(isPatchCurrent(readFile(readArchive(legacyAsar), BOOT_PATH).toString("utf8"), legacyState), false);
+  const updated = join(dir, "updated.asar");
+  writePatched(readArchive(legacyAsar), updated, "0.0.0-test");
+  assert.equal(inspect(readArchive(updated)).restore?.patchFormat, PATCH_FORMAT);
+  // And the upgraded patch still restores to the original bytes.
+  const restored = join(dir, "restored.asar");
+  writeRestored(readArchive(updated), restored);
+  mkdirSync(join(dir, "fresh-"), { recursive: true });
+  assert.deepEqual(readFileSync(restored), readFileSync(makeArchive(join(dir, "fresh-"))));
+});
+
+test("a truncated or non-asar file is rejected with a clear error, not garbage or an OOM", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const stub = join(dir, "app.asar");
+  writeFileSync(stub, "not an asar at all");
+  assert.throws(() => readArchive(stub), /not a readable asar archive/);
+
+  // A 10-byte truncation of a real archive must fail cleanly too.
+  const real = makeArchive(dir, []).slice(0);
+  const full = readFileSync(real);
+  writeFileSync(stub, full.subarray(0, 10));
+  assert.throws(() => readArchive(stub), /not a readable asar archive/);
+
+  // A header claiming a gigantic json length must be refused before the allocation.
+  const evil = Buffer.from(full.subarray(0, 16));
+  evil.writeUInt32LE(0xffff_0000, 12);
+  writeFileSync(stub, Buffer.concat([evil, full.subarray(16)]));
+  assert.throws(() => readArchive(stub), /not a readable asar archive/);
+});
+
+test("entries pointing outside the data region are refused", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-asar-"));
+  const file = makeArchive(dir);
+  const archive = readArchive(file);
+  const entry = archive.header.files.out!.files!.main!.files!["index.js"]!;
+  assert.throws(() => readEntry(archive, { ...entry, offset: String(archive.dataSize - 2) }), /outside the data/);
+  assert.throws(() => readEntry(archive, { ...entry, size: 10_000_000 }), /outside the data/);
+  assert.throws(() => readEntry(archive, { ...entry, offset: "NaN" }), /outside the data/);
+  // The untouched entry still reads fine.
+  assert.equal(readEntry(archive, entry).toString(), "console.log('zcode');\n");
 });
