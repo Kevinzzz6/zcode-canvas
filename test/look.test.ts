@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { buildCss, contrastForeground, isSafeCssValue, tokenProperty } from "../src/shared/css.ts";
-import { loadLook, resolveLook, type ThemeEntry } from "../src/shared/look.ts";
+import { listThemes, loadLook, resolveLook, type ThemeEntry } from "../src/shared/look.ts";
 
 const theme = (manifest: ThemeEntry["manifest"], dir = "/themes/t"): ThemeEntry => ({ id: "t", dir, builtin: true, manifest });
 
@@ -87,4 +88,54 @@ test("loadLook reads config and user themes from disk; enabled=false switches of
   assert.deepEqual(loadLook(home).warnings, ['theme "missing" not found']);
   writeFileSync(join(home, "config.json"), JSON.stringify({ enabled: false, theme: "mine" }));
   assert.equal(loadLook(home).look, null);
+});
+
+const builtinDir = fileURLToPath(new URL("../themes", import.meta.url));
+
+test("every built-in theme resolves to CSS without warnings and ships the files it references", () => {
+  const themes = listThemes(mkdtempSync(join(tmpdir(), "zc-home-")), [builtinDir]);
+  assert.ok(themes.length >= 7);
+  for (const entry of themes) {
+    const look = resolveLook({}, entry, "/home");
+    assert.deepEqual(buildCss(look).warnings, [], entry.id);
+    for (const file of [look.wallpaper?.image, look.startup.logo]) {
+      if (file) assert.ok(existsSync(file), `${entry.id}: missing ${file}`);
+    }
+  }
+});
+
+function contrast(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const [r = 0, g = 0, bl = 0] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+test("endfield palettes keep text and accent text at AA on every surface they sit on", () => {
+  for (const id of ["endfield", "endfield-wuling"]) {
+    const manifest = JSON.parse(readFileSync(join(builtinDir, id, "theme.json"), "utf8")) as ThemeEntry["manifest"];
+    for (const mode of ["dark", "light"] as const) {
+      const c = manifest.colors?.[mode] ?? {};
+      const at = (key: string) => c[key] ?? assert.fail(`${id}.${mode} lacks ${key}`);
+      const pairs: Array<[string, string]> = [
+        ["foreground", "background"],
+        ["foreground", "card"],
+        ["foreground", "popover"],
+        ["foreground-subtle", "background"],
+        ["primary-foreground", "primary"],
+        // brand is used as text (links, focused borders, file chips); on paper it must sink to the deep stop
+        ["brand", "background"],
+        ["brand", "card"],
+      ];
+      for (const [fg, bg] of pairs) {
+        const ratio = contrast(at(fg), at(bg));
+        assert.ok(ratio >= 4.5, `${id}.${mode}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1`);
+      }
+    }
+  }
 });
