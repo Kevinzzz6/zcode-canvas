@@ -121,13 +121,21 @@ try {
   assert.equal(await evaluate(second, "getComputedStyle(document.getElementById('surface')).backdropFilter"), "blur(7px)");
   assert.equal(await evaluate(second, "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()"), "#445566");
 
+  await evaluate(first, "testCanvas.apply({ blur: 9, unset: ['radius'] })");
+  await evaluate(first, "testCanvas.apply({ unset: ['blur', 'positionX'] })");
+  saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+  assert.equal(saved.wallpaper.blur, undefined, "single reset removes one override");
+  assert.equal(saved.wallpaper.position, "50% 74%", "one position axis follows the theme again");
+  await assert.rejects(evaluate(first, "testCanvas.apply({ unset: ['image'] })"), /invalid unset/);
+  assert.match(await evaluate(first, "testCanvas.get().then(d=>d.imageUrl.dark)"), /^file:.*sample\.svg$/);
+
   await evaluate(first, "testCanvas.apply({ reset: 'wallpaper' })");
   saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   assert.equal(saved.wallpaper.image, image);
   assert.equal(saved.wallpaper.position, undefined);
   assert.equal(saved.wallpaper.dim, undefined);
   assert.equal(saved.theme, "theme-b");
-  console.log(JSON.stringify({ passed: true, mainWindows: 2, auxiliaryExcluded: true, untrustedSenderRefused: true, globalWriteAndWatcherSynced: true, previewPureAndExact: true, personalControlsAndResets: true }));
+  console.log(JSON.stringify({ passed: true, mainWindows: 2, auxiliaryExcluded: true, untrustedSenderRefused: true, globalWriteAndWatcherSynced: true, previewPureAndExact: true, personalControlsAndResets: true, singleResets: true }));
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

@@ -3,19 +3,104 @@ import type { ResolvedLook, ResolvedWallpaper, WallpaperFit } from "../shared/lo
 /** UI control metadata. API names and ranges are validated again by the main process. */
 export const knobs = {
   transparency: { label: "界面透明", min: 0, max: 100, step: 1, unit: "%", fallback: 0, group: "primary" },
-  glassBlur: { label: "界面模糊", min: 0, max: 100, step: 1, unit: "px", fallback: 0, group: "primary" },
+  glassBlur: { label: "界面模糊", min: 0, max: 100, step: 1, unit: "px", fallback: 0, group: "primary", curve: "ease" },
   brightness: { label: "图片亮度", min: 0, max: 2, step: .01, unit: "%", fallback: 1, group: "primary" },
-  blur: { label: "图片模糊", min: 0, max: 200, step: 1, unit: "px", fallback: 0, group: "wallpaper" },
+  blur: { label: "图片模糊", min: 0, max: 200, step: 1, unit: "px", fallback: 0, group: "wallpaper", curve: "ease" },
   saturate: { label: "饱和度", min: 0, max: 4, step: .01, unit: "%", fallback: 1, group: "wallpaper" },
   contrast: { label: "对比度", min: 0, max: 2, step: .01, unit: "%", fallback: 1, group: "wallpaper" },
   grayscale: { label: "灰度", min: 0, max: 1, step: .01, unit: "%", fallback: 0, group: "wallpaper" },
-  scale: { label: "缩放", min: .1, max: 4, step: .01, unit: "%", fallback: 1, group: "wallpaper" },
+  scale: { label: "缩放", min: .1, max: 4, step: .01, unit: "%", fallback: 1, group: "wallpaper", curve: "zoom" },
   positionX: { label: "水平位置", min: 0, max: 100, step: 1, unit: "%", fallback: 50, group: "wallpaper" },
   positionY: { label: "垂直位置", min: 0, max: 100, step: 1, unit: "%", fallback: 50, group: "wallpaper" },
   radius: { label: "圆角", min: 0, max: 4, step: .05, unit: "×", fallback: 1, group: "theme" },
 } as const;
 
 export type Knob = keyof typeof knobs;
+
+/** Name of the control in panel requests; transparency is stored inverted as glass opacity. */
+export function inputKey(key: Knob): string {
+  return key === "transparency" ? "glassOpacity" : key;
+}
+
+/** Curved sliders run over 0..SLIDER_SPAN; linear ones use the value's own range. */
+export const SLIDER_SPAN = 1000;
+// Zoom: the first quarter of the track shrinks (0.1–1×), the rest zooms in (1–4×) on a curve,
+// so the common 100–200% range gets almost half of the track.
+const ZOOM_KNEE = .25;
+
+function curveOf(key: Knob): "ease" | "zoom" | undefined {
+  const spec = knobs[key];
+  return "curve" in spec ? spec.curve : undefined;
+}
+
+function clampKnob(key: Knob, value: number): number {
+  const { min, max } = knobs[key];
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Round to the control's step without float noise (0.07 stays 0.07). */
+export function roundKnob(key: Knob, value: number): number {
+  const { step } = knobs[key];
+  return clampKnob(key, Number((Math.round(value / step) * step).toFixed(4)));
+}
+
+/** Slider position for a value. Blur uses a square curve so small radii get most of the track. */
+export function toSlider(key: Knob, value: number): number {
+  const { min, max } = knobs[key];
+  const curve = curveOf(key);
+  const v = clampKnob(key, value);
+  if (curve === "ease") return Math.sqrt((v - min) / (max - min)) * SLIDER_SPAN;
+  if (curve === "zoom") {
+    const t = v <= 1 ? ZOOM_KNEE * (v - min) / (1 - min) : ZOOM_KNEE + (1 - ZOOM_KNEE) * Math.sqrt((v - 1) / (max - 1));
+    return t * SLIDER_SPAN;
+  }
+  return v;
+}
+
+export function fromSlider(key: Knob, position: number): number {
+  const { min, max } = knobs[key];
+  const curve = curveOf(key);
+  if (!curve) return roundKnob(key, position);
+  const t = Math.min(1, Math.max(0, position / SLIDER_SPAN));
+  if (curve === "ease") return roundKnob(key, min + (max - min) * t * t);
+  const value = t <= ZOOM_KNEE ? min + (1 - min) * t / ZOOM_KNEE : 1 + (max - 1) * ((t - ZOOM_KNEE) / (1 - ZOOM_KNEE)) ** 2;
+  return roundKnob(key, value);
+}
+
+/** Share of the track (0..1) at which a value sits, for fills and the default tick. */
+export function trackFraction(key: Knob, value: number): number {
+  const { min, max } = knobs[key];
+  return curveOf(key) ? toSlider(key, value) / SLIDER_SPAN : (clampKnob(key, value) - min) / (max - min);
+}
+
+/** Ratios (1 = 100%) are shown and typed as percentages; everything else in its own unit. */
+function displayFactor(key: Knob): number {
+  return knobs[key].unit === "%" && key !== "transparency" && key !== "positionX" && key !== "positionY" ? 100 : 1;
+}
+
+export function displayNumber(key: Knob, value: number): number {
+  return Number((value * displayFactor(key)).toFixed(2));
+}
+
+/** Parse what the user typed ("100", "100%", "18px", "1.5×"); out-of-range values are clamped. */
+export function parseKnobInput(key: Knob, text: string): { value: number; clamped: boolean } | null {
+  const match = /^\s*(-?\d+(?:[.,]\d+)?)\s*(%|px|×|x)?\s*$/i.exec(text);
+  if (!match) return null;
+  const raw = Number(match[1]!.replace(",", ".")) / displayFactor(key);
+  if (!Number.isFinite(raw)) return null;
+  const value = roundKnob(key, raw);
+  return { value, clamped: Math.abs(value - raw) > knobs[key].step / 2 };
+}
+
+/** Keyboard step in the value's own unit, so curved sliders still move by 1px / 1%. */
+export function stepKnob(key: Knob, value: number, direction: number, large: boolean): number {
+  return roundKnob(key, value + direction * knobs[key].step * (large ? 10 : 1));
+}
+
+export function knobRangeText(key: Knob): string {
+  const { min, max } = knobs[key];
+  return `${formatKnob(key, min)}–${formatKnob(key, max)}`;
+}
 
 export function formatKnob(key: Knob, value: number): string {
   if (key === "transparency" || key === "positionX" || key === "positionY") return `${Math.round(value)}%`;

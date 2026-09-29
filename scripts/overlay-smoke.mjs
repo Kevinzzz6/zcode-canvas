@@ -95,9 +95,14 @@ try {
     await pause();
   };
   const config = () => JSON.parse(readFileSync(configFile, "utf8"));
+  // Curved tracks (blur, zoom) are driven through the typed value, like a user wanting an exact number.
+  const type = async (id, text) => {
+    await ui(`this.getElementById(${JSON.stringify(`${id}-value`)}).click();const e=this.getElementById(${JSON.stringify(`${id}-edit`)});e.value=${JSON.stringify(String(text))};e.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",bubbles:true,composed:true}))`);
+    await pause();
+  };
   await change("transparency", 55);
   assert.ok(Math.abs(config().glass.opacity - .45) < .00001);
-  await change("glassBlur", 18);
+  await type("glassBlur", "18px");
   assert.equal(config().glass.blur, 18);
   // A Canvas-owned probe with the existing contracted CSS class checks the composited surface,
   // without depending on the host's internal editor or notification DOM tree.
@@ -116,6 +121,26 @@ try {
   await change("positionY", 75);
   assert.equal(config().wallpaper.position, "25% 75%");
   assert.equal(await ui('return this.getElementById("positionX-value").textContent'), "25%");
+  assert.equal(await ui('return this.getElementById("positionX-reset").disabled'), false, "a changed control offers its own reset");
+  await ui('this.getElementById("positionX-reset").click()');
+  await pause();
+  assert.doesNotMatch(config().wallpaper.position ?? "", /^25%/, "single reset returns only the horizontal axis");
+  assert.match(config().wallpaper.position ?? "", /75%$/);
+  await type("blur", "999");
+  assert.equal(config().wallpaper.blur, 200, "typed values are clamped to the range");
+  assert.match(await ui('return this.getElementById("status").textContent'), /已限制|已应用|即点即用/);
+  await ui('this.getElementById("blur-reset").click()');
+  await pause();
+  assert.equal(config().wallpaper.blur, undefined, "single reset removes only that override");
+  await ui('this.getElementById("blur-value").click();const e=this.getElementById("blur-edit");e.value="7";e.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true,composed:true}))');
+  await pause(100);
+  assert.equal(await ui('return this.getElementById("panel").hidden'), false, "Escape cancels the edit, not the panel");
+  assert.equal(config().wallpaper.blur, undefined);
+  await change("transparency", 0);
+  assert.equal(await ui('return this.getElementById("primary-hint").hidden'), false, "an opaque UI says why the wallpaper is hidden");
+  assert.equal(await ui('return this.getElementById("glassBlur").disabled'), true);
+  await change("transparency", 55);
+  assert.equal(await ui('return this.getElementById("primary-hint").hidden'), true);
   await ui('this.getElementById("center-position").click()');
   await pause();
   assert.equal(config().wallpaper.position, "50% 50%");
@@ -137,7 +162,7 @@ try {
   assert.equal(config().accent, undefined);
   assert.equal(config().radius, undefined);
   assert.equal(config().wallpaper.image, selectedImage);
-  assert.equal(await ui('return this.getElementById("glassBlur").value'), "18", "reset follows current theme");
+  assert.equal(await ui('return this.getElementById("glassBlur-value").textContent'), "18px", "reset follows current theme");
   await ui('this.getElementById("reset-tuning").click()');
   await pause();
   assert.equal(config().wallpaper.brightness, undefined);

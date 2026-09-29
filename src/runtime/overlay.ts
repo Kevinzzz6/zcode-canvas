@@ -1,6 +1,6 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
-import { diagnose, formatKnob, knobValue, knobs, type Knob, type Size } from "./overlay-preview.ts";
+import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, knobRangeText, knobs, knobValue, parseKnobInput, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
 import type { WallpaperFit } from "../shared/look.ts";
 
 export interface OverlayApi {
@@ -192,21 +192,46 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
       $("status").textContent = transient;
     }
   }
-  async function commitPending() {
+  async function commitPending(message = "已应用 · 所有窗口同步") {
     const patch = pending;
     pending = {};
     draggingSlider = false;
     activeSlider = null;
-    if (Object.keys(patch).length) await mutate(() => api.apply(patch), "已应用 · 所有窗口同步");
+    if (Object.keys(patch).length) await mutate(() => api.apply(patch), message);
   }
   function mode() { return document.documentElement.classList.contains("dark") ? "dark" : "light"; }
+  /** The value the theme gives this control, i.e. what "恢复默认" returns to. */
+  function defaultOf(key: Knob): number {
+    return data ? knobValue(data.defaults, data.defaults.wallpaper[mode()], key) : knobs[key].fallback;
+  }
+  function syncReset(key: Knob) {
+    const reset = $<HTMLButtonElement>(`${key}-reset`);
+    const fallback = defaultOf(key);
+    reset.disabled = busy || $<HTMLInputElement>(key).disabled || Math.abs(values[key] - fallback) < knobs[key].step / 2;
+    reset.title = `恢复默认 ${formatKnob(key, fallback)}`;
+    $(`${key}-track`).style.setProperty("--default", String(trackFraction(key, fallback)));
+    $(`${key}-track`).title = `默认 ${formatKnob(key, fallback)}`;
+  }
   function updateKnob(key: Knob, value: number) {
-    const spec = knobs[key];
     const input = $<HTMLInputElement>(key);
-    input.value = String(value);
-    input.style.setProperty("--fill", `${100 * (value - spec.min) / (spec.max - spec.min)}%`);
+    input.value = String(toSlider(key, value));
+    input.style.setProperty("--fill", `${100 * trackFraction(key, value)}%`);
+    input.setAttribute("aria-valuetext", formatKnob(key, value));
     $(`${key}-value`).textContent = formatKnob(key, value);
     values[key] = value;
+    syncReset(key);
+  }
+  /** Preview one control's new value; the caller commits it (release, Enter, keyboard step). */
+  function stage(key: Knob, value: number) {
+    if (key === "transparency") pending.glassOpacity = Number((1 - value / 100).toFixed(4));
+    else if (key === "positionX" || key === "positionY") {
+      pending.positionX = key === "positionX" ? value : values.positionX;
+      pending.positionY = key === "positionY" ? value : values.positionY;
+    }
+    else (pending as Record<string, unknown>)[key] = value;
+    updateKnob(key, value);
+    if (key === "transparency" || key === "scale" || key === "blur") updateHints();
+    if (data && data.config.enabled !== false) void api.preview({ ...pending }).catch(report);
   }
   function measure(url: string | null | undefined): Size | null {
     if (!url) return null;
@@ -236,7 +261,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     for (const key of Object.keys(knobs) as Knob[]) {
       const reason = disabled[key];
       $<HTMLInputElement>(key).disabled = off || reason !== undefined;
+      $<HTMLButtonElement>(`${key}-value`).disabled = off || reason !== undefined;
       $(`${key}-row`).title = reason ?? "";
+      syncReset(key);
     }
     const show = (id: string, text: string | null) => { $(id).textContent = text ?? ""; $(id).hidden = !text; };
     show("primary-hint", hints.primary);
@@ -245,34 +272,75 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   }
   for (const key of Object.keys(knobs) as Knob[]) {
     const spec = knobs[key];
-    const row = document.createElement("label");
+    const curved = "curve" in spec;
+    const row = document.createElement("div");
     row.className = "knob"; row.id = `${key}-row`;
-    const label = document.createElement("span");
-    label.textContent = spec.label;
+    const label = document.createElement("label");
+    label.textContent = spec.label; label.htmlFor = key;
+    const track = document.createElement("span"); track.className = "track"; track.id = `${key}-track`;
     const input = document.createElement("input");
-    input.type = "range"; input.id = key; input.min = String(spec.min); input.max = String(spec.max); input.step = String(spec.step);
+    input.type = "range"; input.id = key;
+    input.min = curved ? "0" : String(spec.min); input.max = curved ? String(SLIDER_SPAN) : String(spec.max); input.step = curved ? "1" : String(spec.step);
     input.setAttribute("aria-label", spec.label);
-    const output = document.createElement("output"); output.id = `${key}-value`; output.htmlFor = key;
-    row.append(label, input, output);
+    track.append(input);
+    const cell = document.createElement("span"); cell.className = "value-cell";
+    const valueButton = document.createElement("button");
+    valueButton.type = "button"; valueButton.className = "value"; valueButton.id = `${key}-value`;
+    valueButton.setAttribute("aria-label", `${spec.label}：输入数值`); valueButton.title = "点击输入数值";
+    const editor = document.createElement("input");
+    editor.className = "value-edit"; editor.id = `${key}-edit`; editor.hidden = true; editor.inputMode = "decimal"; editor.autocomplete = "off";
+    editor.setAttribute("aria-label", `${spec.label}数值，范围 ${knobRangeText(key)}`);
+    cell.append(valueButton, editor);
+    const reset = document.createElement("button");
+    reset.type = "button"; reset.className = "knob-reset"; reset.id = `${key}-reset`; reset.textContent = "↺"; reset.disabled = true;
+    reset.setAttribute("aria-label", `${spec.label}恢复默认`);
+    row.append(label, track, cell, reset);
     $(`${spec.group}-knobs`).append(row);
+    listen(valueButton, "click", () => {
+      editor.value = String(displayNumber(key, values[key]));
+      valueButton.hidden = true; editor.hidden = false;
+      editor.focus(); editor.select();
+    });
+    const finishEdit = async (commit: boolean, refocus: boolean) => {
+      if (editor.hidden) return;
+      editor.hidden = true; valueButton.hidden = false;
+      if (refocus) valueButton.focus({ preventScroll: true });
+      if (!commit) return;
+      const parsed = parseKnobInput(key, editor.value);
+      if (!parsed) { $("status").textContent = `请输入数字，范围 ${knobRangeText(key)}`; return; }
+      if (Math.abs(parsed.value - values[key]) < spec.step / 2) return;
+      stage(key, parsed.value);
+      await commitPending(parsed.clamped ? `已限制在 ${knobRangeText(key)}` : undefined);
+    };
+    listen(editor, "keydown", (event) => {
+      const e = event as KeyboardEvent;
+      if (e.key !== "Enter" && e.key !== "Escape") return;
+      // Escape cancels the edit only; it must not also close the panel.
+      e.preventDefault(); e.stopPropagation();
+      return finishEdit(e.key === "Enter", true);
+    });
+    listen(editor, "blur", () => finishEdit(true, false));
+    listen(reset, "click", () => mutate(() => api.apply({ unset: [inputKey(key)] }), `${spec.label}已恢复默认`));
     listen(input, "pointerdown", (event) => {
       draggingSlider = true; activeSlider = input;
       input.setPointerCapture((event as PointerEvent).pointerId);
     });
     listen(input, "input", () => {
-      const value = Number(input.value);
-      if (key === "transparency") pending.glassOpacity = 1 - value / 100;
-      else if (key === "positionX" || key === "positionY") {
-        pending.positionX = Number($<HTMLInputElement>("positionX").value);
-        pending.positionY = Number($<HTMLInputElement>("positionY").value);
-      }
-      else (pending as Record<string, unknown>)[key] = value;
       activeSlider = input;
-      updateKnob(key, value);
-      if (key === "transparency" || key === "scale" || key === "blur") updateHints();
-      if (data && data.config.enabled !== false) void api.preview({ ...pending }).catch(report);
+      stage(key, fromSlider(key, Number(input.value)));
     });
-    listen(input, "change", commitPending);
+    // Curved tracks step in the value's own unit, not in track positions.
+    if (curved) listen(input, "keydown", (event) => {
+      const e = event as KeyboardEvent;
+      const direction = ({ ArrowRight: 1, ArrowUp: 1, PageUp: 1, ArrowLeft: -1, ArrowDown: -1, PageDown: -1 } as Record<string, number>)[e.key];
+      const next = e.key === "Home" ? spec.min : e.key === "End" ? spec.max
+        : direction ? stepKnob(key, values[key], direction, e.shiftKey || e.key.startsWith("Page")) : null;
+      if (next === null) return;
+      e.preventDefault();
+      stage(key, next);
+      return commitPending();
+    });
+    listen(input, "change", () => commitPending());
     listen(input, "pointerup", () => { draggingSlider = false; return commitPending(); });
     listen(input, "pointercancel", () => { draggingSlider = false; return commitPending(); });
     listen(input, "blur", () => { if (activeSlider === input) return commitPending(); });

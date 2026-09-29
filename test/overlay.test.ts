@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPreviewController } from "../src/runtime/preview-controller.ts";
-import { diagnose, formatKnob, positionSlack, positionValue, type DiagnosisInput } from "../src/runtime/overlay-preview.ts";
+import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, parseKnobInput, positionSlack, positionValue, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type DiagnosisInput } from "../src/runtime/overlay-preview.ts";
 import type { ResolvedWallpaper } from "../src/shared/look.ts";
 import { isMainWindowUrl } from "../src/shared/window.ts";
 
@@ -32,6 +32,38 @@ test("position controls preserve CSS keyword axis semantics", () => {
     assert.equal(positionValue(value, 0), x);
     assert.equal(positionValue(value, 1), y);
   }
+});
+
+test("blur and zoom tracks give the common low range most of their length", () => {
+  assert.equal(fromSlider("blur", SLIDER_SPAN / 2), 50, "half the track is only a quarter of the blur range");
+  assert.ok(fromSlider("blur", SLIDER_SPAN * .1) <= 2, "the first tenth stays within a couple of pixels");
+  assert.equal(fromSlider("scale", SLIDER_SPAN * .25), 1, "100% zoom sits at the knee");
+  assert.ok(fromSlider("scale", SLIDER_SPAN * .68) <= 2.05, "100–200% takes almost half of the track");
+  // Curved tracks move in whole positions; every value a user can type must still be reachable.
+  for (const [key, value] of [["blur", 37], ["glassBlur", 18], ["scale", 1.5], ["scale", .4]] as const)
+    assert.equal(fromSlider(key, Math.round(toSlider(key, value))), value, `${key} ${value} round-trips through the slider`);
+  assert.equal(toSlider("brightness", .61), .61, "linear controls keep their own units");
+  assert.equal(trackFraction("scale", 1), .25);
+  assert.equal(trackFraction("transparency", 55), .55);
+});
+
+test("typed values use the displayed unit and are clamped to the control's range", () => {
+  assert.deepEqual(parseKnobInput("brightness", "100"), { value: 1, clamped: false });
+  assert.deepEqual(parseKnobInput("brightness", "61%"), { value: .61, clamped: false });
+  assert.deepEqual(parseKnobInput("glassBlur", " 18px "), { value: 18, clamped: false });
+  assert.deepEqual(parseKnobInput("scale", "150"), { value: 1.5, clamped: false });
+  assert.deepEqual(parseKnobInput("radius", "1,5×"), { value: 1.5, clamped: false });
+  assert.deepEqual(parseKnobInput("transparency", "55"), { value: 55, clamped: false });
+  assert.deepEqual(parseKnobInput("blur", "999"), { value: 200, clamped: true });
+  assert.deepEqual(parseKnobInput("scale", "0"), { value: .1, clamped: true });
+  for (const text of ["", "abc", "1e3", "--1"]) assert.equal(parseKnobInput("blur", text), null, text);
+  assert.equal(displayNumber("brightness", .61), 61);
+  assert.equal(displayNumber("positionY", 75), 75);
+  assert.equal(stepKnob("blur", 3, 1, false), 4, "keyboard steps stay 1px on a curved track");
+  assert.equal(stepKnob("scale", 1, -1, true), .9);
+  assert.equal(stepKnob("blur", 199, 1, true), 200);
+  assert.equal(inputKey("transparency"), "glassOpacity");
+  assert.equal(inputKey("blur"), "blur");
 });
 
 const wallpaper: ResolvedWallpaper = { image: "/w/a.jpg", fit: "cover", position: "center", blur: 0, dim: 0, overlay: null, scale: 1, saturate: 1, brightness: 1, contrast: 1, grayscale: 0 };
