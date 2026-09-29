@@ -12,7 +12,7 @@
 
 - 运行时的每个入口都要包在 `try/catch` 里，出错只写 `runtime.log`，不抛给 ZCode。
 - 运行时加载失败时，引导脚本照常启动 ZCode；`ZCODE_CANVAS_DISABLE=1` 总能完全绕开 Canvas。
-- 更新期间，任何 Canvas 进程都不能从 ZCode 安装目录里运行，也不能占用安装目录里的文件（原因见第 3 节“安装器”一行）。
+- 更新期间，任何 Canvas 进程都不能从 ZCode 安装目录里运行，也不能占用安装目录里的文件（官方安装器会结束这类进程并整体替换目录内容）。
 - 拿不准的时候宁可不做：`app.asar` 和预期不一致就拒绝改写，读不懂的新版 IPC 消息就忽略。
 
 ## 2. 各部分的稳定程度
@@ -21,9 +21,8 @@
 |---|---|---|
 | asar 补丁与还原、CSS 白名单、主题格式、配置读写 | 稳定 | 还原与官方文件逐字节一致；theme.json format 1 只做向后兼容的新增；CSS 值只接受白名单语法 |
 | 菜单、托盘、快捷键、外观中心入口 | 尽力而为 | ZCode 改版后允许暂时失效，但不能影响 ZCode 本身 |
-| 更新后自动恢复补丁（`updateRescue`） | 实验性 | 只保证不违反安全底线，不保证每次都恢复成功；`zcode-canvas apply` 才是保证可用的恢复方式 |
 
-改动稳定部分时，必须保持上表里的承诺，并补测试锁定。另外两部分的改动，只要求不越过安全底线。
+改动稳定部分时，必须保持上表里的承诺，并补测试锁定。尽力而为部分的改动，只要求不越过安全底线。
 
 ## 3. 依赖 ZCode 内部实现的地方
 
@@ -38,9 +37,7 @@
 | 应用菜单整体重建时调用 `Menu.setApplicationMenu` | `desktopApplicationMenu.ts` 的 `rebuildApplicationMenu` | `src/runtime/main.ts` 的 `wrapApplicationMenu` | 菜单入口消失 |
 | 托盘菜单整体重建时调用 `Tray.setContextMenu` | `desktopTray.ts` 的 `rebuildContextMenu` | `src/runtime/main.ts` 的 `wrapTrayMenu` | Windows 托盘入口消失 |
 | 快捷键录制状态的 IPC 通道 `zcode:set-shortcut-recording-active` | `packages/shared/src/channels.ts` 的 `SetShortcutRecordingActive` | `src/shared/protocol.ts`、`src/runtime/main.ts` 的 `observeShortcutRecording` | 录制快捷键期间 Canvas 快捷键不再让位 |
-| 更新缓存目录：`resources/app-update.yml` 的 `updaterCacheDirName`，已下载的更新放在其下 `pending/`，安装器从这里运行 | electron-updater | `src/runtime/rescue.ts` | 自动恢复不触发 |
-| Windows 安装器：更新时会结束所有程序路径位于安装目录下的进程 | electron-builder 默认 NSIS 模板 `allowOnlyOneInstallerInstance.nsh`（ZCode 的 `build/installer.nsh` 没有覆盖） | `src/shared/windows.ts`、`src/runtime/rescue.ts` | 如果违反第 1 节，恢复进程会被结束；在没有 PowerShell 的全机器安装环境下，还可能让官方更新失败 |
-| Electron fuse：asar 完整性校验关闭，RunAsNode 开启 | `ZCode.exe` 的打包配置 | 整个补丁方案；自动恢复用 `ZCode.exe` 当 Node 运行 | 完整性校验一旦开启，补丁方案整体失效（见第 5 节） |
+| Electron fuse：asar 完整性校验关闭，RunAsNode 开启 | `ZCode.exe` 的打包配置 | 整个补丁方案 | 完整性校验一旦开启，补丁方案整体失效（见第 5 节） |
 
 新增任何对 ZCode 内部实现的依赖，都要先在这张表里加一行。
 
@@ -48,15 +45,15 @@
 
 - **违反安全底线的问题：** 立即修，并补一个能复现它的测试。
 - **稳定部分违反承诺的问题：** 立即修。
-- **尽力而为或实验性部分，在少见情况下没生效：** 记成 issue，等真实用户反馈再决定，不预先修补。
+- **尽力而为部分，在少见情况下没生效：** 记成 issue，等真实用户反馈再决定，不预先修补。
 - **时序类问题**（安装器、更新器、进程退出顺序之类）：先在真实环境里复现（见第 7 节），再动代码。不根据推演出来的时序组合去修补。
 
-评审意见也按这个门槛分级。“某种情况下自动恢复没成功”本身不是 bug；只有它影响了 ZCode 或官方更新，才是。
+评审意见也按这个门槛分级。尽力而为的部分在少见情况下没生效本身不是 bug；只有它影响了 ZCode 或官方更新，才是。
 
 ## 5. 退路
 
 - **ZCode 开启 asar 完整性校验：** 补丁方案失效。Canvas 应该检测到这种情况，拒绝打补丁并明确提示用户，不去尝试绕过。
-- **长期方向：** 向上游 `zai-org/ZCode` 提议官方的用户 CSS 扩展点，以 theme.json format 1 作为参考实现。一旦官方支持，就不再需要改 `app.asar`，第 3 节的大部分依赖和整个自动恢复功能都可以删除。
+- **长期方向：** 向上游 `zai-org/ZCode` 提议官方的用户 CSS 扩展点，以 theme.json format 1 作为参考实现。一旦官方支持，就不再需要改 `app.asar`，第 3 节的大部分依赖也都可以删除。
 
 ## 6. 不做的事
 
@@ -64,6 +61,7 @@
 - 不留常驻进程；只允许一次性的后台助手，任务完成或超时就退出。
 - 不修改官方 renderer 的代码，不向官方命令面板注册命令。
 - 不执行、不解包、不修改 Wallpaper Engine 内容，只导入静态图片（GIF 由浏览器自己播放）。
+- 官方更新后不自动重新打补丁，由用户重新执行 `zcode-canvas apply`：自动重打要和官方安装器竞争时序，还需要隐藏的后台辅助进程。
 - 不联网。
 
 有人提这类需求时，引用本节说明原因。
@@ -71,9 +69,4 @@
 ## 7. 验收方式
 
 - **稳定部分：** 单元测试（`npm test`），加上在 `scripts/sandbox.mjs` 隔离沙箱里手动验证。
-- **自动恢复补丁：** 单元测试证明不了它可用，只能用真实的更新流程验收。在 Windows Sandbox 或虚拟机里安装一个旧版 ZCode 官方安装包，执行 `apply`，再让 ZCode 更新到新版，然后查看 `~/.zcode-canvas/runtime.log`。至少覆盖两种情况：
-  1. 安装完成后 ZCode 自动重新启动（此时 `app.asar` 被占用，要走等待替换）；
-  2. 安装完成后 ZCode 不自动启动。
-
-  另外还要确认一件事：官方更新本身在两种情况下都正常完成。这是安全底线，比补丁有没有恢复更重要。
 - 任何时候都不要在开发者自己正在使用的 ZCode 上做这些验证。

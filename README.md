@@ -97,9 +97,7 @@ zcode-canvas wallpaper import ./my-project --preview
 
 所有修改都走现有的热更新机制实时刷新主窗口，不需要重启 ZCode。
 
-官方更新会整体替换 `app.asar`，补丁随之消失。**重新执行一次 `zcode-canvas apply` 是保证可用的恢复方式**，只需几秒。
-
-此外还有一个默认开启的**更新自愈**（实验性，尽力而为）：它保证不会影响 ZCode 和官方更新本身，但不保证每次都能恢复成功，没恢复时手动 apply 即可。它会在 ZCode 退出安装更新时接管：Windows 上先启动系统自带的 PowerShell 小等待器（在安装目录之外，不会被官方安装器的“关闭运行中应用”步骤杀掉），等更新安装器真正运行并退出后，再用新的 `ZCode.exe` 重新打补丁；macOS / Linux 直接在退出时移交。普通退出不会打补丁；Windows 上已下载但尚未安装更新时，退出会短暂启动一个隐藏等待器确认没有安装器后自行退出。过程全部记录在 `~/.zcode-canvas/runtime.log`。Linux 的安装目录属于 root 时自愈会立即记录并让位，更新后手动 `sudo zcode-canvas apply`。不想要这个行为可以 `zcode-canvas set updateRescue false`。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
+官方更新会整体替换 `app.asar`，补丁随之消失，ZCode 只是回到官方原样，不会有任何损坏。重新执行一次 `zcode-canvas apply`（只需几秒）即可恢复补丁。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
 
 ## 卸载
 
