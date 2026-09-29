@@ -43,13 +43,26 @@
 需要 Node.js 20 或更高版本。
 
 ```sh
-git clone https://github.com/Kevinzzz6/zcode-canvas.git
-cd zcode-canvas
-npm install && npm run build && npm link
+npm install -g zcode-canvas
 
 zcode-canvas apply          # 给 ZCode 打补丁
 zcode-canvas use endfield   # 切换主题，ZCode 实时刷新
 ```
+
+不想全局安装，也可以一次性运行：`npx zcode-canvas apply`。
+
+<details>
+<summary><b>从源码安装（想改代码或主题）</b></summary>
+
+<br>
+
+```sh
+git clone https://github.com/Kevinzzz6/zcode-canvas.git
+cd zcode-canvas
+npm install && npm run build && npm link
+```
+
+</details>
 
 | 平台 | `apply` 时要注意 |
 |---|---|
@@ -65,8 +78,9 @@ zcode-canvas use endfield   # 切换主题，ZCode 实时刷新
 <br>
 
 ```text
-帮我安装 ZCode Canvas：https://github.com/Kevinzzz6/zcode-canvas
-按 README 的「快速开始」操作，装好后用 zcode-canvas status 确认补丁已安装。
+帮我安装 ZCode Canvas（npm 包 zcode-canvas）。
+先 npm install -g zcode-canvas，再 zcode-canvas apply，
+装好后用 zcode-canvas status 确认补丁已安装。
 需要管理员权限、sudo 或退出 ZCode 的步骤请交给我，不要自己结束 ZCode 进程。
 最后切换到 endfield 主题。
 ```

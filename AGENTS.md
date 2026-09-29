@@ -9,3 +9,4 @@
 - 新增对 ZCode 内部实现的依赖时，同步更新 `docs/design.md` 第 3 节的表格。
 - 不要在开发者自己正在使用的 ZCode 上测试。用 `scripts/sandbox.mjs` 启动隔离副本。
 - 提交前运行 `npm run typecheck`、`npm test`、`npm run build`。
+- 发布用 `npm publish --ignore-scripts=false`：仓库 `.npmrc` 的 `ignore-scripts=true` 会连 `prepack` 一起跳过，不带这个旗标会把没有 `dist` 的残缺包发出去。
