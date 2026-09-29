@@ -253,6 +253,61 @@ test("unset removes one personal override so the theme's value applies again", (
   assert.equal(before.wallpaper?.dark?.blur, 8, "the original config is never mutated");
 });
 
+test("a Smart Palette request is validated, replaces the personal accent and can be cleared", () => {
+  const home = makeHome();
+  const before: CanvasConfig = { theme: "mine", accent: "#123456", wallpaper: { image: "/w/pic.jpg" } };
+  const after = applyPanelInput(before, { palette: { seed: "#5EEAD4", variant: "vivid", backdrop: "#101820" } }, home);
+  assert.deepEqual(after.palette, { seed: "#5eead4", variant: "vivid", backdrop: "#101820" });
+  assert.equal(after.accent, undefined, "the palette's own primary colors take over");
+  assert.equal(after.wallpaper?.image, "/w/pic.jpg");
+  assert.equal(before.accent, "#123456", "the original config is never mutated");
+  assert.equal(applyPanelInput(after, { palette: null }, home).palette, undefined, "clearing removes the override");
+  assert.equal(applyPanelInput(after, { reset: "theme" }, home).palette, undefined, "恢复主题默认 removes it too");
+  for (const palette of [
+    "#5eead4", { seed: "red", variant: "natural" }, { seed: "#5eead4" }, { seed: "#5eead4", variant: "neon" },
+    { seed: "#5eead4", variant: "soft", backdrop: "url(x)" }, { seed: "#5eead4", variant: "soft", colors: {} }, [],
+  ]) assert.throws(() => applyPanelInput(before, { palette }, home), /invalid palette/, JSON.stringify(palette));
+  writeConfigAtomic(home, after);
+  const data = readPanelData(home);
+  assert.equal(data.overrides.theme, true);
+  assert.equal(data.effective.palette?.variant, "vivid");
+});
+
+test("region controls write glass.regions, unset one field at a time and report what they follow", () => {
+  const home = makeHome();
+  writeFileSync(join(home, "themes", "mine", "theme.json"), JSON.stringify({ name: "Mine", glass: { opacity: 0.7, regions: { card: { opacity: 0.9 } } } }));
+  const before: CanvasConfig = { theme: "mine", glass: { opacity: 0.5, blur: 10 } };
+  const tuned = applyPanelInput(before, { frameOpacity: 0.3, mainOpacity: 0.6, mainBlur: 24, inputBlur: 0 }, home);
+  assert.deepEqual(tuned.glass, { opacity: 0.5, blur: 10, regions: { frame: { opacity: 0.3 }, main: { opacity: 0.6, blur: 24 }, input: { blur: 0 } } });
+  assert.deepEqual(before.glass, { opacity: 0.5, blur: 10 });
+  const mainBlurOnly = applyPanelInput(tuned, { unset: ["mainOpacity", "frameOpacity"] }, home);
+  assert.deepEqual(mainBlurOnly.glass?.regions, { main: { blur: 24 }, input: { blur: 0 } });
+  const none = applyPanelInput(mainBlurOnly, { unset: ["mainBlur", "inputBlur"] }, home);
+  assert.deepEqual(none.glass, { opacity: 0.5, blur: 10 }, "no empty regions are left behind");
+  for (const bad of [{ mainOpacity: 1.2 }, { cardBlur: 101 }, { frameBlur: 4 }, { mainOpacity: "0.5" }])
+    assert.throws(() => applyPanelInput(before, bad, home), Error, JSON.stringify(bad));
+
+  writeConfigAtomic(home, tuned);
+  const data = readPanelData(home);
+  assert.equal(data.effective.glass.regions.main.opacity, 0.6);
+  assert.deepEqual(data.regionDefaults.main, { opacity: 0.5, blur: 10 }, "without its override main follows the personal global glass");
+  assert.equal(data.regionDefaults.card.opacity, 0.9, "the theme's own region value is the card default");
+  assert.deepEqual(data.regionFollows.main, { opacity: false, blur: false });
+  assert.deepEqual(data.regionFollows.card, { opacity: false, blur: true });
+  assert.deepEqual(data.regionFollows.input, { opacity: true, blur: false });
+});
+
+test("preview renders a palette without writing it", async () => {
+  const home = makeHome();
+  writeConfigAtomic(home, { theme: "mine" });
+  const before = readFileSync(join(home, "config.json"), "utf8");
+  const { listeners, reloads } = harness(home, async () => null);
+  const preview = await listeners.get(CHANNEL_PANEL_PREVIEW)!(undefined, { palette: { seed: "#ff4d6d", variant: "oled" } }) as { css: string };
+  assert.match(preview.css, /html:root\.dark \{[^}]*--color-background: #000000/);
+  assert.equal(readFileSync(join(home, "config.json"), "utf8"), before);
+  assert.equal(reloads.length, 0);
+});
+
 test("readPanelData exposes the painted image as a file URL per mode", () => {
   const home = makeHome();
   writeConfigAtomic(home, { theme: "builtinwp" });

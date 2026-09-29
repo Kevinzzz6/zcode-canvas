@@ -8,7 +8,9 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpat
 import { basename, dirname, extname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCss, isSafeCssValue } from "../shared/css.ts";
-import { listThemes, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
+import { GLASS_REGIONS, type GlassRegion, type GlassRegionSpec } from "../shared/glass.ts";
+import { listThemes, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type GlassSpec, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
+import { isPaletteColor, PALETTE_VARIANTS, type PaletteSpec, type PaletteVariant } from "../shared/palette.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
 
 /** Image formats the panel accepts; a gif plays its animation in the CSS background. Anything
@@ -36,6 +38,10 @@ export interface PanelData {
   wallpapers: PanelWallpaperInfo[];
   effective: ResolvedLook;
   defaults: ResolvedLook;
+  /** What each region shows once its personal override is removed: the theme's region value, or the current global glass. */
+  regionDefaults: ResolvedLook["glass"]["regions"];
+  /** Region fields that neither the theme nor the user set, so they move with the global glass controls. */
+  regionFollows: Record<GlassRegion, { opacity: boolean; blur: boolean }>;
   overrides: { theme: boolean; wallpaper: boolean };
   platform: string;
   /** file: URL of the image each mode paints, so the overlay can measure how the fit crops it. */
@@ -107,6 +113,11 @@ export function readPanelData(home: string): PanelData {
   // A hand-edited `wallpaper: null` really does remove the theme's wallpaper; don't claim it shows.
   const fromTheme = !file && config.wallpaper !== null && active !== undefined && themeHasWallpaper(active.manifest);
   const effective = resolveLook(config, active ?? null, home);
+  const withoutRegions: CanvasConfig = { ...config };
+  if (config.glass?.regions) {
+    const { regions: _personal, ...glass } = config.glass;
+    withoutRegions.glass = glass;
+  }
   const imageUrl = (mode: Mode) => {
     const image = effective.wallpaper[mode]?.image;
     try { return image ? pathToFileURL(image).href : null; } catch { return null; }
@@ -117,8 +128,14 @@ export function readPanelData(home: string): PanelData {
     wallpapers,
     effective,
     defaults: resolveLook({ theme: config.theme }, active ?? null, home),
+    regionDefaults: resolveLook(withoutRegions, active ?? null, home).glass.regions,
+    regionFollows: Object.fromEntries(GLASS_REGIONS.map((region) => {
+      const set = (field: keyof GlassRegionSpec) =>
+        active?.manifest.glass?.regions?.[region]?.[field] !== undefined || config.glass?.regions?.[region]?.[field] !== undefined;
+      return [region, { opacity: !set("opacity"), blur: !set("blur") }];
+    })) as PanelData["regionFollows"],
     overrides: {
-      theme: config.accent !== undefined || config.radius !== undefined || !!config.glass && Object.keys(config.glass).length > 0,
+      theme: config.accent !== undefined || config.radius !== undefined || config.palette !== undefined || !!config.glass && Object.keys(config.glass).length > 0,
       wallpaper: !!config.wallpaper && WALLPAPER_CONTROL_KEYS.some((key) =>
         key in config.wallpaper! || !!config.wallpaper?.dark && key in config.wallpaper.dark || !!config.wallpaper?.light && key in config.wallpaper.light),
     },
@@ -144,6 +161,15 @@ export interface PanelInput {
   material?: unknown;
   accent?: unknown;
   radius?: unknown;
+  /** `{ seed, variant, backdrop? }` sets a Smart Palette; null removes the personal one. */
+  palette?: unknown;
+  frameOpacity?: unknown;
+  mainOpacity?: unknown;
+  mainBlur?: unknown;
+  cardOpacity?: unknown;
+  cardBlur?: unknown;
+  inputOpacity?: unknown;
+  inputBlur?: unknown;
   positionX?: unknown;
   positionY?: unknown;
   reset?: unknown;
@@ -163,11 +189,47 @@ const WALLPAPER_NUMBERS = {
   grayscale: [0, 1],
 } as const;
 const WALLPAPER_CONTROL_KEYS = ["fit", "position", ...Object.keys(WALLPAPER_NUMBERS)] as const;
+/** Per-region glass controls: the region, its field, and the range. */
+const REGION_INPUTS = {
+  frameOpacity: ["frame", "opacity", 1],
+  mainOpacity: ["main", "opacity", 1],
+  mainBlur: ["main", "blur", 100],
+  cardOpacity: ["card", "opacity", 1],
+  cardBlur: ["card", "blur", 100],
+  inputOpacity: ["input", "opacity", 1],
+  inputBlur: ["input", "blur", 100],
+} as const satisfies Record<string, readonly [GlassRegion, keyof GlassRegionSpec, number]>;
+type RegionInput = keyof typeof REGION_INPUTS;
+const REGION_INPUT_KEYS = Object.keys(REGION_INPUTS) as RegionInput[];
 const PANEL_INPUT_KEYS = new Set([
-  "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS),
-  "glassOpacity", "glassBlur", "material", "accent", "radius", "positionX", "positionY", "reset", "clearOverlay", "unset",
+  "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS,
+  "glassOpacity", "glassBlur", "material", "accent", "radius", "palette", "positionX", "positionY", "reset", "clearOverlay", "unset",
 ]);
-const UNSET_KEYS = new Set(["glassOpacity", "glassBlur", "radius", "positionX", "positionY", ...Object.keys(WALLPAPER_NUMBERS)]);
+const UNSET_KEYS = new Set(["glassOpacity", "glassBlur", "radius", "positionX", "positionY", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS]);
+
+/** A glass override with the given region fields removed; empty regions and an empty glass disappear. */
+function withoutRegionFields(glass: GlassSpec, keys: readonly RegionInput[]): GlassSpec {
+  if (!glass.regions) return glass;
+  const regions = { ...glass.regions };
+  for (const key of keys) {
+    const [region, field] = REGION_INPUTS[key];
+    const own: GlassRegionSpec = { ...(regions[region] ?? {}) };
+    delete own[field];
+    if (Object.keys(own).length) regions[region] = own;
+    else delete regions[region];
+  }
+  const next: GlassSpec = { ...glass, regions };
+  if (!Object.keys(regions).length) delete next.regions;
+  return next;
+}
+
+function parsePalette(raw: unknown): PaletteSpec {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid palette");
+  const { seed, variant, backdrop, ...rest } = raw as Record<string, unknown>;
+  if (Object.keys(rest).length || !isPaletteColor(seed) || !PALETTE_VARIANTS.includes(variant as PaletteVariant)
+    || (backdrop !== undefined && !isPaletteColor(backdrop))) throw new Error("invalid palette");
+  return { seed: seed.toLowerCase(), variant: variant as PaletteVariant, ...(backdrop ? { backdrop: (backdrop as string).toLowerCase() } : {}) };
+}
 
 function panelNumber(raw: unknown, min: number, max: number, label: string): number {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw < min || raw > max) throw new Error(`invalid ${label}`);
@@ -232,7 +294,7 @@ function setWallpaper(config: CanvasConfig, wallpaper: WallpaperLayer | null | u
 function unsetControls(next: CanvasConfig, keys: unknown, home: string): void {
   if (!Array.isArray(keys) || !keys.length || keys.some((key) => typeof key !== "string" || !UNSET_KEYS.has(key)))
     throw new Error("invalid unset request");
-  const glass = { ...(next.glass ?? {}) };
+  const glass = withoutRegionFields({ ...(next.glass ?? {}) }, keys.filter((key): key is RegionInput => key in REGION_INPUTS));
   if (keys.includes("glassOpacity")) delete glass.opacity;
   if (keys.includes("glassBlur")) delete glass.blur;
   if (next.glass) {
@@ -273,6 +335,7 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
       delete next.accent;
       delete next.radius;
       delete next.glass;
+      delete next.palette;
     } else if (input.reset === "wallpaper") {
       const wallpaper = withoutWallpaperControls(next.wallpaper);
       if (wallpaper === undefined) delete next.wallpaper;
@@ -331,15 +394,31 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
     }
     next.wallpaper = wallpaper;
   }
-  if (input.glassOpacity !== undefined || input.glassBlur !== undefined || input.material !== undefined) {
-    const glass = { ...(next.glass ?? {}) };
+  const regionKeys = REGION_INPUT_KEYS.filter((key) => request[key] !== undefined);
+  if (input.glassOpacity !== undefined || input.glassBlur !== undefined || input.material !== undefined || regionKeys.length) {
+    const glass: GlassSpec = { ...(next.glass ?? {}), ...(next.glass?.regions ? { regions: { ...next.glass.regions } } : {}) };
     if (input.glassOpacity !== undefined) glass.opacity = panelNumber(input.glassOpacity, 0, 1, "glass opacity");
     if (input.glassBlur !== undefined) glass.blur = panelNumber(input.glassBlur, 0, 100, "glass blur");
     if (input.material !== undefined) {
       if (typeof input.material !== "string" || !MATERIALS.includes(input.material as Material)) throw new Error("invalid material");
       glass.material = input.material as Material;
     }
+    for (const key of regionKeys) {
+      const [region, field, max] = REGION_INPUTS[key];
+      const regions = glass.regions ?? {};
+      regions[region] = { ...(regions[region] ?? {}), [field]: panelNumber(request[key], 0, max, `glass ${key}`) };
+      glass.regions = regions;
+    }
     next.glass = glass;
+  }
+  if (input.palette !== undefined) {
+    // Clearing removes the override, so a theme's own palette applies again. Setting one drops the
+    // personal accent: it would otherwise repaint the palette's primary colors.
+    if (input.palette === null) delete next.palette;
+    else {
+      next.palette = parsePalette(input.palette);
+      delete next.accent;
+    }
   }
   if (input.accent !== undefined) {
     if (input.accent === null) delete next.accent;
