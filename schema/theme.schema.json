@@ -48,6 +48,22 @@
       "maximum": 4,
       "description": "Corner radius scale: 1 = official, 0 = square. rounded-full shapes stay round."
     },
+    "palette": {
+      "description": "Smart Palette: generates every color token of both modes from one seed. colors in the same layer refine it. null removes a theme's palette.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["seed"],
+          "additionalProperties": false,
+          "properties": {
+            "seed": { "$ref": "#/$defs/hexColor", "description": "Only its hue and chroma are used." },
+            "variant": { "enum": ["natural", "vivid", "soft", "oled", "contrast"] },
+            "backdrop": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/hexColor" }], "description": "Average wallpaper color; text is also kept readable over what shows through translucent surfaces." }
+          }
+        }
+      ]
+    },
     "vars": {
       "type": ["object", "null"],
       "description": "Other CSS custom properties for both modes, optionally refined under dark / light. null clears them all; null under a mode clears that mode.",
@@ -79,7 +95,23 @@
       "properties": {
         "material": { "enum": ["acrylic", "mica", "tabbed", "none"], "description": "Native window material." },
         "opacity": { "type": "number", "minimum": 0, "maximum": 1, "description": "1 = official opaque surfaces." },
-        "blur": { "type": "number", "minimum": 0, "maximum": 100, "description": "Backdrop blur of content surfaces, px." }
+        "blur": { "type": "number", "minimum": 0, "maximum": 100, "description": "Backdrop blur of content surfaces, px." },
+        "regions": {
+          "type": "object",
+          "description": "Per-region opacity / blur. A region or field left out follows opacity / blur.",
+          "additionalProperties": false,
+          "properties": {
+            "frame": {
+              "type": "object",
+              "description": "Window frame; the sidebar has no background of its own and shows it.",
+              "additionalProperties": false,
+              "properties": { "opacity": { "type": "number", "minimum": 0, "maximum": 1 } }
+            },
+            "main": { "$ref": "#/$defs/glassRegion", "description": "Main pane, side panels, terminal." },
+            "card": { "$ref": "#/$defs/glassRegion", "description": "Cards, code blocks, secondary buttons." },
+            "input": { "$ref": "#/$defs/glassRegion", "description": "Prompt composer and other inputs, focused or not." }
+          }
+        }
       }
     },
     "startup": {
@@ -95,6 +127,15 @@
   },
   "$defs": {
     "mode": { "enum": ["dark", "light"] },
+    "hexColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+    "glassRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "blur": { "type": "number", "minimum": 0, "maximum": 100, "description": "px" }
+      }
+    },
     "cssValue": {
       "type": "string",
       "description": "A vars value. Quotes are allowed (font stacks); function calls must be on the allowlist, lowercase.",

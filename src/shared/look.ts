@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { GLASS_REGIONS, regionAlphas, type GlassRegion, type GlassRegionSpec, type ResolvedRegion } from "./glass.ts";
+import { filteredBackdrop, generatePalette, isPaletteColor, PALETTE_VARIANTS, type PaletteBackdrop, type PaletteReadability, type PaletteSpec, type PaletteVariant } from "./palette.ts";
 
 export type Mode = "dark" | "light";
 export type Material = "acrylic" | "mica" | "tabbed" | "none";
@@ -39,6 +41,15 @@ export interface GlassSpec {
   opacity?: number;
   /** Backdrop blur applied to the main content surfaces, in px. */
   blur?: number;
+  /** Per-region opacity / blur; a region or field left out follows `opacity` / `blur`. */
+  regions?: Partial<Record<GlassRegion, GlassRegionSpec>>;
+}
+
+export interface ResolvedGlass {
+  material: Material;
+  opacity: number;
+  blur: number;
+  regions: Record<GlassRegion, ResolvedRegion>;
 }
 
 export interface StartupSpec {
@@ -86,6 +97,8 @@ export interface LookSpec {
   accent?: string | ModeMap<string> | null;
   /** Corner radius scale: 1 = official, 0 = square corners. `rounded-full` shapes stay round. */
   radius?: number | null;
+  /** Generates a full set of color tokens around one seed color. `colors` in the same layer refine it. */
+  palette?: PaletteSpec | null;
   /** Other CSS custom properties, for anything that has no dedicated field. */
   vars?: VarsSpec | null;
   wallpaper?: WallpaperLayer | null;
@@ -144,8 +157,10 @@ export interface ResolvedLook {
   radius: number | null;
   vars: Record<Mode, Record<string, string>>;
   wallpaper: Record<Mode, ResolvedWallpaper | null>;
-  glass: Required<GlassSpec>;
+  glass: ResolvedGlass;
   startup: ResolvedStartup;
+  /** The palette in effect, and how readable its body text is over the wallpaper per mode. */
+  palette: { seed: string; variant: PaletteVariant; readability: Record<Mode, PaletteReadability | null> } | null;
 }
 
 export interface ThemeEntry {
@@ -297,6 +312,34 @@ function resolveWallpaper(spec: WallpaperSpec | null): ResolvedWallpaper | null 
   };
 }
 
+/** The glass of one layer merged onto the ones below it; regions merge region by region, field by field. */
+function mergeGlass(below: GlassSpec, layer: GlassSpec): GlassSpec {
+  const merged: GlassSpec = { ...below, ...layer };
+  if (below.regions || layer.regions) {
+    const regions: Partial<Record<GlassRegion, GlassRegionSpec>> = {};
+    for (const region of GLASS_REGIONS) {
+      const own = { ...(below.regions?.[region] ?? {}), ...(layer.regions?.[region] ?? {}) };
+      if (Object.keys(own).length) regions[region] = own;
+    }
+    merged.regions = regions;
+  }
+  return merged;
+}
+
+function resolveGlass(glass: GlassSpec): ResolvedGlass {
+  const opacity = clamp(glass.opacity, 0, 1, 1);
+  const blur = clamp(glass.blur, 0, 100, 0);
+  const regions = {} as Record<GlassRegion, ResolvedRegion>;
+  for (const region of GLASS_REGIONS) {
+    const own = glass.regions?.[region];
+    regions[region] = {
+      opacity: clamp(own?.opacity, 0, 1, opacity),
+      blur: region === "frame" ? 0 : clamp(own?.blur, 0, 100, blur),
+    };
+  }
+  return { material: oneOf(glass.material, MATERIALS, "acrylic"), opacity, blur, regions };
+}
+
 /**
  * Merge theme + user config into one look. The config wins field by field; an explicit `null`
  * in the config removes what the theme set (e.g. `"wallpaper": null`).
@@ -313,9 +356,11 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
   let radius: number | null = null;
   let glass: GlassSpec = {};
   let startup: StartupSpec = {};
+  let palette: { spec: PaletteSpec; layer: number } | null = null;
 
-  for (const layer of layers) {
-    for (const mode of MODES) Object.assign(colors[mode], layer.colors?.[mode]);
+  layers.forEach((layer, index) => {
+    if (layer.palette === null) palette = null;
+    else if (layer.palette && isPaletteColor(layer.palette.seed)) palette = { spec: layer.palette, layer: index };
     if (layer.accent === null) accent = {};
     else if (layer.accent !== undefined) accent = { ...accent, ...perMode(layer.accent, isString) };
     if (layer.radius !== undefined) radius = layer.radius === null ? null : clamp(layer.radius, 0, 4, 1);
@@ -336,9 +381,36 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
         wallpaper[mode] = own === null ? null : { ...(wallpaper[mode] ?? {}), ...own };
       }
     }
-    if (layer.glass) glass = { ...glass, ...layer.glass };
+    if (layer.glass) glass = mergeGlass(glass, layer.glass);
     if (layer.startup) startup = { ...startup, ...layer.startup };
+  });
+
+  const resolvedGlass = resolveGlass(glass);
+  const resolvedWallpaper = { dark: resolveWallpaper(wallpaper.dark), light: resolveWallpaper(wallpaper.light) };
+
+  // A palette replaces the tokens of the layers below it and is refined by `colors` of its own layer
+  // and the layers above: a user palette recolors a theme, a theme's colors refine its own palette.
+  const active = palette as { spec: PaletteSpec; layer: number } | null;
+  let generated: ReturnType<typeof generatePalette> = null;
+  if (active) {
+    const alphas = regionAlphas(resolvedGlass.regions);
+    const backdrops: Partial<Record<Mode, PaletteBackdrop>> = {};
+    const average = active.spec.backdrop;
+    for (const mode of MODES) {
+      const shown = resolvedWallpaper[mode];
+      if (!shown || !isPaletteColor(average) || alphas.main >= 1) continue;
+      backdrops[mode] = {
+        color: filteredBackdrop(average, shown.brightness, shown.dim, shown.overlay, mode),
+        frameAlpha: alphas.frame,
+        mainAlpha: alphas.main,
+      };
+    }
+    generated = generatePalette(active.spec, backdrops);
   }
+  layers.forEach((layer, index) => {
+    if (generated && active && index === active.layer) for (const mode of MODES) Object.assign(colors[mode], generated.colors[mode]);
+    for (const mode of MODES) Object.assign(colors[mode], layer.colors?.[mode]);
+  });
 
   // A personal accent overrides the theme's primary colors, including themes which spell out
   // those tokens explicitly. Explicit *user* color tokens remain more specific than the accent.
@@ -358,24 +430,27 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
     accent,
     radius,
     vars,
-    wallpaper: { dark: resolveWallpaper(wallpaper.dark), light: resolveWallpaper(wallpaper.light) },
-    glass: {
-      material: oneOf(glass.material, MATERIALS, "acrylic"),
-      opacity: clamp(glass.opacity, 0, 1, 1),
-      blur: clamp(glass.blur, 0, 100, 0),
-    },
+    wallpaper: resolvedWallpaper,
+    glass: resolvedGlass,
     startup: {
       background: startup.background ?? null,
       logo: startup.logo ?? null,
       logoSize: clamp(startup.logoSize, 16, 512, 96),
       animation: oneOf(startup.animation, STARTUP_ANIMATIONS, "pop"),
     },
+    palette: generated && active
+      ? {
+          seed: active.spec.seed.toLowerCase(),
+          variant: PALETTE_VARIANTS.includes(active.spec.variant as PaletteVariant) ? active.spec.variant! : "natural",
+          readability: generated.readability,
+        }
+      : null,
   };
 }
 
 const MANIFEST_KEYS = new Set([
   "$schema", "format", "name", "description", "author", "version", "license", "source", "modes",
-  "colors", "accent", "radius", "vars", "wallpaper", "glass", "startup",
+  "colors", "accent", "radius", "palette", "vars", "wallpaper", "glass", "startup",
 ]);
 
 /** Problems in a theme.json that do not stop it from loading. */

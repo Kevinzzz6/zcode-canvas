@@ -1,5 +1,6 @@
 import { statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { BLUR_REGIONS, regionAlphas, type GlassRegion } from "./glass.ts";
 import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
 
 // The contract with ZCode, taken from its source (packages/ui/src/styles.css,
@@ -13,24 +14,31 @@ import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
 // Popovers, menus and dialogs portal to <body>, outside #root, so they keep opaque colors.
 // Selectors carry an id so they outrank ZCode's own rules regardless of sheet order.
 
-type Tier = "base" | "content" | "raised";
-
-const SURFACES: ReadonlyArray<readonly [token: string, tier: Tier]> = [
-  ["background-win-alt", "base"],
-  ["background-alt", "base"],
-  ["sidebar", "base"],
-  ["background", "content"],
-  ["panel", "content"],
-  ["header", "content"],
-  ["tab", "content"],
-  ["tab-active", "content"],
-  ["terminal-bg", "content"],
-  ["card", "raised"],
-  ["input", "raised"],
-  ["secondary", "raised"],
+/** The surface tokens made translucent, by the region that paints them (see shared/glass.ts).
+ *  input-focused is what the prompt composer switches to while it has focus. */
+const SURFACES: ReadonlyArray<readonly [token: string, region: GlassRegion]> = [
+  ["background-win-alt", "frame"],
+  ["background-alt", "frame"],
+  ["sidebar", "frame"],
+  ["background", "main"],
+  ["panel", "main"],
+  ["header", "main"],
+  ["tab", "main"],
+  ["tab-active", "main"],
+  ["terminal-bg", "main"],
+  ["card", "card"],
+  ["secondary", "card"],
+  ["input", "input"],
+  ["input-focused", "input"],
 ];
 
-const BLURRED_SURFACES = [".bg-background", ".bg-panel", ".bg-card", ".bg-input"];
+/** Tailwind background utilities of each region's surfaces, which take its backdrop blur. */
+const BLURRED_SURFACES: Record<GlassRegion, readonly string[]> = {
+  frame: [],
+  main: [".bg-background", ".bg-panel"],
+  card: [".bg-card"],
+  input: [".bg-input"],
+};
 
 /** Color token names: "sidebar" or "--color-sidebar". Mirrors colorTokens in theme.schema.json. */
 const COLOR_TOKEN = /^(--color-)?[a-z0-9][a-z0-9-]*$/;
@@ -91,19 +99,8 @@ function cssUrl(file: string): string {
   return `url("${url.replace(/"/g, "%22")}")`;
 }
 
-/**
- * Percent alpha per tier. Content surfaces sit on top of the translucent frame, so their own alpha is
- * derived such that frame + content together match `opacity`; the frame (and sidebar) stay clearer.
- */
-function alphaFor(tier: Tier, opacity: number): number {
-  const base = opacity * 0.7;
-  const alpha = {
-    base,
-    content: 1 - (1 - opacity) / (1 - base),
-    raised: 1 - (1 - opacity) * 0.5,
-  }[tier];
-  return Math.round(alpha * 1000) / 10;
-}
+/** Percent, rounded to one decimal as the sheet writes it. */
+const percent = (alpha: number) => Math.round(alpha * 1000) / 10;
 
 function srgbToLinear(c: number): number {
   return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
@@ -360,22 +357,30 @@ export function buildCss(look: ResolvedLook): CssResult {
     rules.push(block("html:root", RADII.map(([name, rem]) => `--radius-${name}: ${scale === 0 ? "0" : `${Math.round(rem * scale * 1000) / 1000}rem`}`)));
   }
 
-  const { opacity, blur } = look.glass;
-  if (opacity < 1) {
+  const { regions } = look.glass;
+  const alphas = regionAlphas(regions);
+  const translucent = SURFACES.filter(([, region]) => percent(alphas[region]) < 100);
+  if (translucent.length) {
     // A custom property cannot reference itself, so the original value is captured one level up
     // (body inherits it from <html>) and re-declared translucent on #root.
-    rules.push(block("body", SURFACES.map(([token]) => `--zc-src-${token}: var(--color-${token})`)));
+    rules.push(block("body", translucent.map(([token]) => `--zc-src-${token}: var(--color-${token})`)));
     rules.push(
       block(
         "#root",
-        SURFACES.map(
-          ([token, tier]) =>
-            `--color-${token}: color-mix(in srgb, var(--zc-src-${token}) ${alphaFor(tier, opacity)}%, transparent)`,
+        translucent.map(
+          ([token, region]) => `--color-${token}: color-mix(in srgb, var(--zc-src-${token}) ${percent(alphas[region])}%, transparent)`,
         ),
       ),
     );
-    if (blur > 0) {
-      rules.push(block(BLURRED_SURFACES.map((s) => `#root ${s}`).join(",\n"), [`backdrop-filter: blur(${blur}px)`]));
+    // Regions sharing a radius share one rule, so the untuned case stays a single declaration.
+    const byBlur = new Map<number, string[]>();
+    for (const region of BLUR_REGIONS) {
+      const { opacity, blur } = regions[region];
+      if (opacity >= 1 || blur <= 0) continue;
+      byBlur.set(blur, [...(byBlur.get(blur) ?? []), ...BLURRED_SURFACES[region]]);
+    }
+    for (const [blur, selectors] of byBlur) {
+      rules.push(block(selectors.map((s) => `#root ${s}`).join(",\n"), [`backdrop-filter: blur(${blur}px)`]));
     }
   }
 
