@@ -48,6 +48,7 @@ my-theme/
 | `colors` | 对象 | ZCode 颜色 token，按 `dark` / `light` 分开 |
 | `accent` | 字符串或按模式 | 强调色，只补 `colors` 没有写的 token |
 | `radius` | 数字 | 圆角倍数，`1` 为官方，`0` 为全直角 |
+| `palette` | 对象或 `null` | 智能配色：从一个种子色生成两种模式的整套颜色 token |
 | `vars` | 对象 | 没有专门字段的其他 CSS 自定义属性 |
 | `wallpaper` | 对象或 `null` | 壁纸，可以按模式细化 |
 | `glass` | 对象 | 窗口材质与界面半透明 |
@@ -81,6 +82,13 @@ my-theme/
 
   "radius": 0.5,                // 圆角减半；0 = 全直角
 
+  // 智能配色（可选）：从种子色生成两种模式的全部颜色 token，上面的 colors 在它之上再细化。
+  "palette": {
+    "seed": "#5eead4",          // 只取它的色相和彩度
+    "variant": "natural",       // natural | vivid | soft | oled | contrast
+    "backdrop": null            // 可选，壁纸平均色；有它时会检查透明表面上的文字对比度
+  },
+
   // 其他 CSS 自定义属性。顶层写的对两种模式都生效，dark / light 里写的只对该模式生效并覆盖顶层。
   "vars": {
     "--my-gap": "6px",
@@ -108,7 +116,11 @@ my-theme/
     "material": "acrylic",      // acrylic | mica | tabbed | none。Windows 用原生材质；
                                 // macOS 一律映射为原生毛玻璃，none 关闭；Linux 忽略此项
     "opacity": 0.6,             // 主内容区的最终不透明度 0~1；1 = 官方外观
-    "blur": 16                  // 主内容区的背景模糊半径，px
+    "blur": 16,                 // 主内容区的背景模糊半径，px
+    "regions": {                // 可选，按区域单独设置；没写的区域或字段跟随上面两项
+      "frame": { "opacity": 0.4 },              // 窗口与侧栏（只能调透明度）
+      "input": { "opacity": 0.85, "blur": 24 }  // 另有 main、card
+    }
   },
 
   "startup": {
@@ -130,6 +142,8 @@ my-theme/
 - 写 `null` 表示去掉主题设置的这一项，例如 `"wallpaper": null`、`"radius": null`、`"accent": null`。
 - `wallpaper` 和 `vars` 都遵循同一条"按模式细化"规则：顶层字段对两种模式生效，`dark` / `light` 里的字段只对该模式生效，并覆盖顶层；某个模式写 `null` 表示只在该模式下去掉。
 - 主题 `accent` 和主题 `colors` 同时出现时，`colors` 里显式写的 token 优先，`accent` 只补空缺。用户 `config.accent` 会覆盖主题提供的 `primary`、`brand`、`ring` 和 `primary-foreground`（包括主题 `colors` 中的显式值）；用户 `config.colors` 中显式写的 token 仍优先。
+- `palette` 生成的 token 放在它所在的那一层：用户配置里的 `palette` 会覆盖主题 `colors` 里的同名 token（即“给主题换一套配色”），主题自己的 `colors` 则在主题 `palette` 之上细化。`palette` 生成的主色同样会被用户 `config.accent` 覆盖。用户配置写 `"palette": null` 会去掉主题的智能配色。
+- `glass.regions` 按区域、按字段合并：用户只设 `regions.main.blur` 不会影响主题的 `regions.main.opacity`。
 
 外观中心拖动控件时，主进程只读校验请求并生成完整 CSS，当前窗口即时替换预览样式；预览不会写配置或广播，较早返回的预览会忽略。松手后才原子保存并同步其他主窗口。
 
@@ -152,6 +166,47 @@ my-theme/
 
 `colors` 只放颜色 token，键只能是 token 名（`sidebar` 或 `--color-sidebar`，小写字母、数字和 `-`）。在里面写 `--radius-xl` 这类其他自定义属性会被忽略并给出警告，请改用 `radius` 或 `vars`。
 
+## 智能配色
+
+`palette` 只需要一个种子色，Canvas 会在 OKLCH 色彩空间里按固定的明度阶梯生成两种模式的约 50 个 token：窗口、侧栏、主区域、卡片、输入框、弹出层、边框与悬停、三级文字、强调色（`primary` / `brand` / `ring` 等）、终端，以及成功 / 警告 / 错误色。同一套明度对所有色相一致，所以换种子色不会让界面忽明忽暗。
+
+五种风格：
+
+| `variant` | 效果 |
+|---|---|
+| `natural` | 默认。表面带一点种子色倾向，强调色饱和度适中 |
+| `vivid` | 表面与强调色都更鲜艳 |
+| `soft` | 低饱和，接近灰阶 |
+| `oled` | 暗色模式的窗口和主区域是纯黑；亮色模式同 `natural` |
+| `contrast` | 高对比：文字更亮 / 更暗，边框更明显，对比度目标更高 |
+
+种子色几乎是灰色（OKLCH 彩度低于 0.02）时，整套配色保持单色，不会凭空造出一个色相。
+
+**对比度保护。** 每个承载文字的 token 生成后都会按 WCAG 对比度对照它所在的表面检查，不达标就沿远离背景的方向调整明度，直到达标：正文 ≥ 7:1，次级文字和强调色 ≥ 4.5:1，最弱的提示文字 ≥ 3:1（`contrast` 风格分别是 12 / 7 / 4.5），按钮和状态徽标上的文字 ≥ 4.5:1。
+
+写了 `backdrop`（壁纸平均色，外观中心取色时会自动带上）并且当前模式有壁纸、主区域半透明时，正文还会对照“表面叠在壁纸上实际显示的颜色”再检查一次，壁纸自身的亮度和遮罩也计入。壁纸太亮、透明度太高，正文已经调到最亮仍低于 4.5:1（`contrast` 风格为 7:1）时，外观中心会提示调低界面透明或图片亮度。Canvas 不会替你改透明度。
+
+外观中心的「智能配色」会从当前壁纸取出最多 5 个种子色；也可以自选任意颜色作种子。
+
+## 分区玻璃
+
+`glass.regions` 让下面四个区域各用自己的透明度（`opacity`）和模糊（`blur`）。没有写的区域或字段跟随 `glass.opacity` / `glass.blur`，所以只调一个区域时其余保持不变。
+
+| 区域 | 包含的表面 | 可调 |
+|---|---|---|
+| `frame` | 窗口外框。ZCode 的侧栏没有自己的背景，看到的就是它 | 透明度 |
+| `main` | 主内容区、侧边面板、标签、终端底色 | 透明度、模糊 |
+| `card` | 卡片、代码块、次级按钮 | 透明度、模糊 |
+| `input` | 输入框，包括对话输入框聚焦时 | 透明度、模糊 |
+
+几条由叠放关系决定的规则：
+
+- `frame` 是整个窗口的最底层。它不透明（`opacity: 1`）时，壁纸和原生材质都看不到，其他区域也只能透出它的颜色。
+- `main` 叠在 `frame` 上面，看起来不会比 `frame` 更通透；设得比它还低时，主区域自身完全透明，显示的就是 `frame`。
+- `frame` 不能设模糊：外框上的背景模糊会截断主区域对壁纸的模糊。
+
+每个区域的数值和整体 `glass.opacity` 含义相同，只是只作用于这个区域，计算方式见「透明度是怎么算的」。
+
 ## 圆角
 
 ZCode 的 `rounded-sm`、`rounded-xl` 等类都读 Tailwind 的 `--radius-xs` … `--radius-4xl` 变量。`radius` 按倍数缩放这一整组变量：`0` 是全直角，`0.5` 是官方圆角的一半，`1` 等于不设置。`rounded-full` 不走这些变量，所以头像、开关、状态点始终是圆的。
@@ -166,7 +221,9 @@ ZCode 的 `rounded-sm`、`rounded-xl` 等类都读 Tailwind 的 `--radius-xs` �
 
 - **外框层**：`background-win-alt`、`background-alt`、`sidebar`，不透明度为 `opacity × 0.7`。ZCode 在 Windows 和 Linux 上外框用 `background-win-alt`，macOS 用 `background-alt`（叠在原生 vibrancy 上），两层 token 都会被调整；
 - **内容层**：`background`、`panel`、`header`、`tab`、`terminal-bg` 等。它们叠在外框层上面，所以自身的不透明度是反推出来的，保证两层叠加后正好等于 `opacity`；
-- **凸起层**：`card`、`input`、`secondary`，比内容层更不透明一些，保证文字清晰。
+- **凸起层**：`card`、`secondary`、`input`、`input-focused`，比内容层更不透明一些，保证文字清晰。
+
+设置了 `glass.regions` 时，每一层用所属区域自己的 `opacity` 代入上面的公式；内容层按外框层实际的不透明度反推。某个区域的 `opacity` 为 1 时，它的 token 保持官方颜色不动。
 
 透出来的东西按平台不同：Windows 是 acrylic/mica 材质，macOS 是原生 vibrancy，Linux 是窗口本身的透明（需要合成器支持；不支持时毛玻璃退化为纯色，壁纸不受影响，因为壁纸绘制在页面内部）。
 

@@ -31,6 +31,8 @@
 | 依赖 | ZCode 源码位置 | Canvas 使用位置 | 失效时的表现 |
 |---|---|---|---|
 | `--color-*` 设计 token，`.dark` / `.theme-zai-*` 主题 class | `packages/ui/src/styles.css` | `src/shared/css.ts` | 配色或透明度部分失效 |
+| 分区玻璃的区域划分：侧栏没有自己的背景，透出的是窗口外框；主区域是外框上的 `bg-background`；输入框聚焦时换成 `input-focused` | `WorkspaceShellLayout.tsx`、`prompt-editor/ChatPromptEditor.tsx` | `src/shared/css.ts` 的 `SURFACES`、`src/shared/glass.ts` | 某个区域的透明度调了没反应，或跟着别的区域变 |
+| Tailwind 背景工具类 `.bg-background`、`.bg-panel`、`.bg-card`、`.bg-input`（毛玻璃模糊挂在它们上面） | ZCode 组件的 className | `src/shared/css.ts` 的 `BLURRED_SURFACES` | 对应区域的模糊失效，透明度不受影响 |
 | 窗口外框 `[data-desktop-window-frame]` | `packages/ui/src/DesktopWindowFrame.tsx` | `src/shared/css.ts` | 毛玻璃失效 |
 | 启动画面 `#loading`、`.startup-logo-shell`、`body.zcode-startup-ready` | `packages/desktop/src/renderer/index.html` | `src/shared/css.ts` | 启动画面定制失效 |
 | 主窗口页面路径 `out/renderer/index.html`，其他窗口带 `windowKind` 参数 | `packages/desktop/src/main` 中创建窗口的代码 | `src/runtime/preload.ts`、`src/runtime/main.ts` 的 `senderIsMainWindow` | 样式不注入，或注入到错误的窗口 |
@@ -50,12 +52,16 @@
 - 壁纸缩略图使用 `loading="lazy"`；GIF 加载后用 canvas 捕获静帧并释放动画图片，不给 88 张图片增加虚拟化。实际壁纸 GIF 继续播放。
 - 拖动滑杆时，主进程只读校验输入并生成完整 CSS；当前窗口替换预览样式，不写配置、不广播，过期响应忽略。松手后才通过既有白名单校验和原子写入提交，失败清除预览并恢复已保存状态；watcher 再同步所有主窗口。
 - 选择库内壁纸只接受受校验的平面文件 ID，主进程解析到 Canvas 自有库；不接受渲染层指定的任意路径。既有配置写入模型保持不变。
-- 通用界面可调透明度、毛玻璃模糊和图片亮度；壁纸可调铺放、X/Y 位置（含居中）、模糊、压暗、缩放、饱和度、亮度、对比度和灰度。主题还可覆盖强调色、圆角和材质。
+- 通用界面可调透明度、毛玻璃模糊和图片亮度；分区玻璃可分别调侧栏、主区域、卡片、输入框的透明度，以及后三者的模糊；壁纸可调铺放、X/Y 位置（含居中）、模糊、压暗、缩放、饱和度、亮度、对比度和灰度。主题还可覆盖强调色、圆角、材质和智能配色。
 - 控件被其他条件挡住时就近说明原因，不静默失效：只有在任何窗口下都确定无效时才禁用（不透明时的毛玻璃模糊、拉伸且未缩放时的位置、没有壁纸时的图片调节）；依赖窗口尺寸的判断（某方向没有裁切余量）只提示不禁用。图片尺寸由渲染层按主进程给出的 file URL 自行测量，不新增 IPC。
 - 数值可直接输入，渲染层按显示单位解析并限制在范围内，主进程仍按白名单范围二次校验。单项恢复通过 `unset` 删除该项个人覆盖，让主题值重新生效，不写入默认值；位置只恢复被重置的轴。
-- 用户覆盖跨主题切换保留；恢复主题默认删除个人 `glass`、`accent`、`radius` 覆盖并保留壁纸选择。`config.accent` 覆盖主题强调色生成的 `primary`、`brand`、`ring`、`primary-foreground`，但用户 `config.colors` 中显式 token 优先。
+- 用户覆盖跨主题切换保留；恢复主题默认删除个人 `glass`（含分区）、`accent`、`radius`、`palette` 覆盖并保留壁纸选择。`config.accent` 覆盖主题强调色生成的 `primary`、`brand`、`ring`、`primary-foreground`，但用户 `config.colors` 中显式 token 优先。在外观中心应用智能配色会删除个人 `accent`，之后再选强调色仍会覆盖配色的主色。
 - 新导入壁纸在个人配置尚无 `dim` 时设为 `0`，CLI 导入行为相同；既有配置不自动迁移。旧版非零遮罩会在常用图片亮度控制旁提示，可清除。
 - 入口位置与隐藏状态使用带命名空间的本地 UI 偏好，不混入外观配置；入口可直接拖动，菜单只提供隐藏/显示与重置位置。关闭浮层不撤销已提交外观。
+- 简单 / 高级模式也是本地 UI 偏好。简单模式只隐藏「主题细节」「分区玻璃」「壁纸细节」三组控件，不改变任何已保存的外观；默认是简单模式。
+- 智能配色的取色在渲染层完成：把主进程给出的当前壁纸 file URL 画进一张最长边 96px 的自有 canvas，读出像素后算出种子色和平均色，随即释放图片。跨进程只传 `#rrggbb` 种子色、风格名和平均色，主进程按白名单校验后才写入 `config.palette`；整套 token 由主进程从种子重新生成，渲染层生成的色卡只用于预览缩略图。读不到像素（例如图片解码失败）时就近提示，并保留自选颜色这条路。
+- 悬停配色风格时走既有的只读预览，移开即恢复；点击才提交。
+- 分区玻璃没单独设置的区域跟随整体「界面透明」「界面模糊」，拖动整体滑杆时这些区域的滑杆同步移动。区域的透明看不出效果时就近说明原因：侧栏（即窗口外框）不透明时其他区域只能透出侧栏颜色；主区域不会比它下面的侧栏更通透。
 
 ## 4. 修复门槛
 

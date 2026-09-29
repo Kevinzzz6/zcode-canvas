@@ -22,10 +22,10 @@
 <tr>
 <td width="33%" valign="top"><b>主题</b><br>一套主题就是一个文件夹，装着 <code>theme.json</code> 和图片。复制给别人就能用。</td>
 <td width="33%" valign="top"><b>壁纸</b><br>支持 png、jpg、webp、avif、svg，GIF 动图会直接播放。可以调模糊、缩放、位置和色彩。</td>
-<td width="33%" valign="top"><b>毛玻璃</b><br>界面半透明，透出壁纸或系统原生材质（Windows acrylic / mica、macOS vibrancy）。</td>
+<td width="33%" valign="top"><b>毛玻璃</b><br>界面半透明，透出壁纸或系统原生材质（Windows acrylic / mica、macOS vibrancy）。侧栏、主区域、卡片、输入框可以分别调透明度和模糊。</td>
 </tr>
 <tr>
-<td valign="top"><b>配色</b><br>直接覆盖 ZCode 的设计 token，亮色和暗色分开配置。强调色和圆角都能单独改。</td>
+<td valign="top"><b>配色</b><br>直接覆盖 ZCode 的设计 token，亮色和暗色分开配置。智能配色能从壁纸取色，一键生成整套颜色，并自动保证文字对比度。</td>
 <td valign="top"><b>启动画面</b><br>背景、logo 图片和动画都能换。样式在首帧之前注入，不会先闪一下官方画面。</td>
 <td valign="top"><b>实时生效</b><br>改了配置或主题文件，正在运行的 ZCode 约 1 秒内刷新，不用重启。</td>
 </tr>
@@ -108,6 +108,9 @@ npm install && npm run build && npm link
 
 - **主题**：点色卡切换主题。你改过的强调色、圆角、材质和壁纸在切换时都会保留。
 - **我的壁纸**：浏览已导入的图片，点一下就用上。"添加图片"会把图片复制进 Canvas 自己的壁纸库。
+- **智能配色**：从当前壁纸取出几个种子色（也可以自选颜色），再选自然、鲜艳、柔和、OLED 或高对比，整套界面颜色一起生成。鼠标悬停就能预览，点击才应用。所有文字都会按 WCAG 对比度检查；壁纸透出太多、文字不够清楚时，面板会提示。
+- **简单 / 高级**：简单模式只显示常用调节；切到高级后可以展开主题细节、分区玻璃和壁纸细节。切换模式不会改动已保存的设置。
+- **分区玻璃**：侧栏、主区域、卡片、输入框分别调透明度和模糊。没单独调的区域跟随整体设置。
 - **调节**：拖动滑杆就能实时预览，松手后才保存，并同步到所有窗口。点击数值可以直接输入，比如 `18px`、`1.5×`。
 - **为什么没变化**：某项调节被其他设置挡住时，面板会就近说明原因。比如界面完全不透明时，壁纸就看不到。
 - **单项重置**：偏离主题默认值的项，行尾会出现 ↺，点一下只恢复这一项。
@@ -204,6 +207,9 @@ zcode-canvas themes                      # 列出主题
 zcode-canvas use <id | none>             # 切换主题
 zcode-canvas set accent "#7c5cff"        # 强调色
 zcode-canvas set radius 0                # 全直角
+zcode-canvas set palette.seed "#5eead4"  # 智能配色：从一个颜色生成整套界面颜色
+zcode-canvas set palette.variant oled    # natural | vivid | soft | oled | contrast
+zcode-canvas set glass.regions.input.opacity 0.9   # 只让输入框更不透明，其余跟随 glass.opacity
 zcode-canvas unset wallpaper             # 删除一项或一组设置，回到主题默认值
 zcode-canvas new <id>                    # 把当前设置存成主题（会复制用到的图片）
 zcode-canvas open                        # 打开外观中心；ZCode 没运行时打开配置目录
