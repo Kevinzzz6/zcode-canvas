@@ -8,7 +8,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpat
 import { basename, dirname, extname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCss, isSafeCssValue } from "../shared/css.ts";
-import { listThemes, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type Material, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
+import { listThemes, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
 
 /** Image formats the panel accepts; a gif plays its animation in the CSS background. Anything
@@ -38,6 +38,8 @@ export interface PanelData {
   defaults: ResolvedLook;
   overrides: { theme: boolean; wallpaper: boolean };
   platform: string;
+  /** file: URL of the image each mode paints, so the overlay can measure how the fit crops it. */
+  imageUrl: Record<Mode, string | null>;
   /** The user's own wallpaper override (file name only), and whether the theme ships one instead. */
   wallpaper: { id: string | null; file: string | null; fromTheme: boolean };
 }
@@ -104,11 +106,16 @@ export function readPanelData(home: string): PanelData {
   const active = config.theme ? themes.find((entry) => entry.id === config.theme) : undefined;
   // A hand-edited `wallpaper: null` really does remove the theme's wallpaper; don't claim it shows.
   const fromTheme = !file && config.wallpaper !== null && active !== undefined && themeHasWallpaper(active.manifest);
+  const effective = resolveLook(config, active ?? null, home);
+  const imageUrl = (mode: Mode) => {
+    const image = effective.wallpaper[mode]?.image;
+    try { return image ? pathToFileURL(image).href : null; } catch { return null; }
+  };
   return {
     config,
     themes: themes.map(({ id, manifest, builtin }) => ({ id, name: manifest.name, builtin, swatch: themeSwatch(manifest) })),
     wallpapers,
-    effective: resolveLook(config, active ?? null, home),
+    effective,
     defaults: resolveLook({ theme: config.theme }, active ?? null, home),
     overrides: {
       theme: config.accent !== undefined || config.radius !== undefined || !!config.glass && Object.keys(config.glass).length > 0,
@@ -116,6 +123,7 @@ export function readPanelData(home: string): PanelData {
         key in config.wallpaper! || !!config.wallpaper?.dark && key in config.wallpaper.dark || !!config.wallpaper?.light && key in config.wallpaper.light),
     },
     platform: process.platform,
+    imageUrl: { dark: imageUrl("dark"), light: imageUrl("light") },
     wallpaper: { id: id && wallpapers.some((entry) => entry.id === id) ? id : null, file, fromTheme },
   };
 }
@@ -140,6 +148,8 @@ export interface PanelInput {
   positionY?: unknown;
   reset?: unknown;
   clearOverlay?: unknown;
+  /** Control names whose personal override is removed, so the theme's value applies again. */
+  unset?: unknown;
 }
 
 /** Numeric wallpaper knobs and the ranges the panel may set them to. */
@@ -155,8 +165,9 @@ const WALLPAPER_NUMBERS = {
 const WALLPAPER_CONTROL_KEYS = ["fit", "position", ...Object.keys(WALLPAPER_NUMBERS)] as const;
 const PANEL_INPUT_KEYS = new Set([
   "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS),
-  "glassOpacity", "glassBlur", "material", "accent", "radius", "positionX", "positionY", "reset", "clearOverlay",
+  "glassOpacity", "glassBlur", "material", "accent", "radius", "positionX", "positionY", "reset", "clearOverlay", "unset",
 ]);
+const UNSET_KEYS = new Set(["glassOpacity", "glassBlur", "radius", "positionX", "positionY", ...Object.keys(WALLPAPER_NUMBERS)]);
 
 function panelNumber(raw: unknown, min: number, max: number, label: string): number {
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw < min || raw > max) throw new Error(`invalid ${label}`);
@@ -194,18 +205,53 @@ function copyWallpaper(wallpaper: WallpaperLayer | null | undefined): WallpaperL
   return copy;
 }
 
-function withoutWallpaperControls(wallpaper: WallpaperLayer | null | undefined): WallpaperLayer | null | undefined {
+function withoutWallpaperKeys(wallpaper: WallpaperLayer | null | undefined, keys: readonly string[]): WallpaperLayer | null | undefined {
   if (wallpaper === null || wallpaper === undefined) return wallpaper;
   const clean: WallpaperLayer = { ...wallpaper };
-  for (const key of WALLPAPER_CONTROL_KEYS) delete (clean as Record<string, unknown>)[key];
+  for (const key of keys) delete (clean as Record<string, unknown>)[key];
   for (const mode of ["dark", "light"] as const) {
     if (clean[mode] && typeof clean[mode] === "object") {
       const own = { ...clean[mode] };
-      for (const key of WALLPAPER_CONTROL_KEYS) delete (own as Record<string, unknown>)[key];
+      for (const key of keys) delete (own as Record<string, unknown>)[key];
       clean[mode] = own;
     }
   }
   return Object.keys(clean).length ? clean : undefined;
+}
+
+function withoutWallpaperControls(wallpaper: WallpaperLayer | null | undefined): WallpaperLayer | null | undefined {
+  return withoutWallpaperKeys(wallpaper, WALLPAPER_CONTROL_KEYS);
+}
+
+function setWallpaper(config: CanvasConfig, wallpaper: WallpaperLayer | null | undefined): void {
+  if (wallpaper === undefined) delete config.wallpaper;
+  else config.wallpaper = wallpaper;
+}
+
+/** Remove single personal overrides. One position axis falls back to the theme's axis, the other stays. */
+function unsetControls(next: CanvasConfig, keys: unknown, home: string): void {
+  if (!Array.isArray(keys) || !keys.length || keys.some((key) => typeof key !== "string" || !UNSET_KEYS.has(key)))
+    throw new Error("invalid unset request");
+  const glass = { ...(next.glass ?? {}) };
+  if (keys.includes("glassOpacity")) delete glass.opacity;
+  if (keys.includes("glassBlur")) delete glass.blur;
+  if (next.glass) {
+    if (Object.keys(glass).length) next.glass = glass;
+    else delete next.glass;
+  }
+  if (keys.includes("radius")) delete next.radius;
+  setWallpaper(next, withoutWallpaperKeys(next.wallpaper, keys.filter((key) => key in WALLPAPER_NUMBERS)));
+  const axes = keys.filter((key) => key === "positionX" || key === "positionY");
+  if (!axes.length || !next.wallpaper) return;
+  const own = positionAxes(next.wallpaper.position);
+  const withoutPosition = withoutWallpaperKeys(next.wallpaper, ["position"]);
+  const theme = next.theme ? listThemes(home).find((entry) => entry.id === next.theme) ?? null : null;
+  const inherited = resolveLook({ ...next, wallpaper: withoutPosition }, theme, home).wallpaper;
+  const fallback = positionAxes(inherited.dark?.position) ?? positionAxes(inherited.light?.position) ?? [50, 50];
+  const x = axes.includes("positionX") ? fallback[0] : own?.[0] ?? fallback[0];
+  const y = axes.includes("positionY") ? fallback[1] : own?.[1] ?? fallback[1];
+  if (x === fallback[0] && y === fallback[1]) setWallpaper(next, withoutPosition);
+  else next.wallpaper = { ...copyWallpaper(withoutPosition), position: `${x}% ${y}%` };
 }
 
 function imageWithUnobscuredOverlay(wallpaper: WallpaperLayer): WallpaperLayer {
@@ -233,6 +279,7 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
       else next.wallpaper = wallpaper;
     } else throw new Error("invalid reset target");
   }
+  if (input.unset !== undefined) unsetControls(next, input.unset, home);
   if (input.clearOverlay !== undefined) {
     if (input.clearOverlay !== true) throw new Error("invalid clearOverlay request");
     const wallpaper: WallpaperLayer = { ...copyWallpaper(next.wallpaper), dim: 0 };

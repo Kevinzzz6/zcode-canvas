@@ -225,6 +225,44 @@ test("reset removes only controlled tuning and preserves images, theme and unrel
   assert.equal(readPanelData(home).overrides.wallpaper, false, "selected image alone is not a tuning badge");
 });
 
+test("unset removes one personal override so the theme's value applies again", () => {
+  const home = makeHome();
+  mkdirSync(join(home, "themes", "framed"), { recursive: true });
+  writeFileSync(join(home, "themes", "framed", "theme.json"), JSON.stringify({ name: "Framed", wallpaper: { image: "bg.png", position: "30% 70%", blur: 12 } }));
+  const before: CanvasConfig = {
+    theme: "framed", radius: 2, glass: { opacity: 0.4, blur: 20 },
+    wallpaper: { image: "/w/pic.jpg", blur: 4, brightness: 0.8, position: "10% 90%", dark: { image: "/w/dark.jpg", blur: 8 } },
+  };
+  const one = applyPanelInput(before, { unset: ["blur"] }, home);
+  assert.deepEqual(one.wallpaper, { image: "/w/pic.jpg", brightness: 0.8, position: "10% 90%", dark: { image: "/w/dark.jpg" } });
+  assert.deepEqual(one.glass, before.glass);
+  writeConfigAtomic(home, one);
+  assert.equal(readPanelData(home).effective.wallpaper.light?.blur, 12, "the theme's blur shows again");
+
+  const axis = applyPanelInput(before, { unset: ["positionX"] }, home);
+  assert.equal(axis.wallpaper?.position, "30% 90%", "only the unset axis falls back to the theme");
+  const both = applyPanelInput(axis, { unset: ["positionY"] }, home);
+  assert.equal(both.wallpaper && "position" in both.wallpaper, false, "no override is left once both axes follow the theme");
+
+  const glass = applyPanelInput(applyPanelInput(before, { unset: ["glassOpacity"] }, home), { unset: ["glassBlur", "radius"] }, home);
+  assert.equal(glass.glass, undefined, "an emptied glass override disappears");
+  assert.equal(glass.radius, undefined);
+  assert.deepEqual(applyPanelInput({ theme: null }, { unset: ["blur", "glassOpacity"] }, home), { theme: null });
+
+  for (const unset of [[], ["image"], ["theme"], "blur", [1]]) assert.throws(() => applyPanelInput(before, { unset }, home), /invalid unset/, JSON.stringify(unset));
+  assert.equal(before.wallpaper?.dark?.blur, 8, "the original config is never mutated");
+});
+
+test("readPanelData exposes the painted image as a file URL per mode", () => {
+  const home = makeHome();
+  writeConfigAtomic(home, { theme: "builtinwp" });
+  const data = readPanelData(home);
+  assert.equal(data.imageUrl.dark, pathToFileURL(join(home, "runtime", "themes", "builtinwp", "bg.png")).href);
+  assert.equal(data.imageUrl.light, data.imageUrl.dark);
+  writeConfigAtomic(home, { theme: null });
+  assert.deepEqual(readPanelData(home).imageUrl, { dark: null, light: null });
+});
+
 test("global wallpaper changes clear mode shadows without mutating the original config", () => {
   const home = makeHome();
   const before: CanvasConfig = { wallpaper: { image: "/w/shared.jpg", dark: { image: "/w/dark.jpg", blur: 31, fit: "tile", dim: 0.8, position: "top right" }, light: null } };
