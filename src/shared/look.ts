@@ -115,8 +115,6 @@ export interface CanvasConfig extends LookSpec {
   enabled?: boolean;
   /** Active theme id (folder name), or null for none. */
   theme?: string | null;
-  /** Re-patch app.asar automatically after a ZCode update replaced it. Default true. */
-  updateRescue?: boolean;
 }
 
 export interface ResolvedWallpaper {

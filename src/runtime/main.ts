@@ -1,15 +1,12 @@
 // Runs inside ZCode's Electron main process, loaded by the bootstrap before ZCode's own entry.
 // Anything thrown here must never reach ZCode: every entry point is guarded.
 import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, Tray, type IpcMainEvent, type OpenDialogOptions, type WebContents } from "electron";
-import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 import { buildCss } from "../shared/css.ts";
-import { canvasHome, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
+import { canvasHome, loadLook, paths, type Material } from "../shared/look.ts";
 import { CHANNEL_CSS, CHANNEL_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
-import { startDetachedPowerShell } from "../shared/windows.ts";
 import { registerPanelHandlers } from "./panel.ts";
-import { stagedUpdateCacheDir, stagedUpdateIsPresent, windowsRescueWaiterCommand } from "./rescue.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome } from "./watch.ts";
 
@@ -185,58 +182,6 @@ function senderIsMainWindow(event: IpcMainEvent): boolean {
   }
 }
 
-/**
- * Official updates replace app.asar wholesale, which removes the patch — and with it this runtime,
- * silently reverting the whole look. Nothing of Canvas may run from the install dir while the
- * installer works (electron-builder's NSIS running-app check kills every process whose path is
- * under the install dir), so on Windows the runtime only starts System32's powershell.exe: a
- * hidden waiter that confirms the update installer actually appears, waits for it to exit, and
- * only then runs the NEW ZCode.exe as plain Node to re-apply the patch. Because ZCode on Windows
- * installs only via an explicit "restart to update" (auto-install-on-quit is off there), an
- * ordinary quit with a merely downloaded update also starts that waiter — it sees no installer,
- * logs, and exits.
- * macOS/Linux hand over directly: no installer sweeps those platforms, and POSIX does not lock
- * replaced binaries. `zcode-canvas set updateRescue false` turns the whole mechanism off.
- */
-function spawnUpdateRescue() {
-  try {
-    if (readConfig(home).updateRescue === false) return;
-    const cliCopy = join(paths.runtime(home), "cli.mjs");
-    const asar = join(process.resourcesPath, "app.asar");
-    if (!existsSync(cliCopy) || !existsSync(asar)) return;
-    const installDir =
-      process.platform === "darwin" ? dirname(dirname(process.resourcesPath)) : dirname(process.resourcesPath);
-    if (process.platform === "win32") {
-      if (!stagedUpdateIsPresent(process.resourcesPath)) return;
-      const updaterCacheDir = stagedUpdateCacheDir(process.resourcesPath);
-      if (!updaterCacheDir) return;
-      // The waiter script is staged in the canvas home and started via the safe launcher: a
-      // detached powershell.exe of our own dies at spawn (console subsystem, no console).
-      const scriptFile = join(paths.runtime(home), "rescue-waiter.ps1");
-      writeFileSync(scriptFile, `${windowsRescueWaiterCommand({
-        updaterCacheDir,
-        rescueExe: process.execPath,
-        cliCopy,
-        installDir,
-        canvasHome: home,
-        logFile,
-      })}\n`, "utf8");
-      const { started, error } = startDetachedPowerShell(scriptFile);
-      log(started ? "rescue waiter handed over" : `rescue waiter failed to start${error ? `: ${error}` : ""}`);
-    } else {
-      spawn(process.execPath, [cliCopy, "__rescue", installDir, home], {
-        detached: true,
-        stdio: "ignore",
-        windowsHide: true,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
-      }).unref();
-      log("update rescue helper handed over");
-    }
-  } catch (error) {
-    log(`update rescue unavailable: ${String(error)}`);
-  }
-}
-
 /** The only way a wallpaper enters the config: a file chosen in the native dialog. */
 async function pickWallpaperFile(): Promise<string | null> {
   const options: OpenDialogOptions = {
@@ -301,7 +246,6 @@ try {
   wrapTrayMenu();
   observeShortcutRecording();
   installInWindowShortcut();
-  app.once("will-quit", spawnUpdateRescue);
 
   // Only the preload of ZCode's main window asks, so this also identifies the windows to style —
   // verified on the main side, not just by the preload itself.
