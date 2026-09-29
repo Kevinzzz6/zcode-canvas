@@ -1,145 +1,302 @@
+<div align="center">
+
 # ZCode Canvas
 
-给**官方发布版** ZCode Desktop 换主题、换壁纸、开毛玻璃、改启动画面。不需要自己编译 ZCode，也不需要维护 fork。
+**给官方版 ZCode 换一身皮肤。**
 
-- **主题**：一套主题就是一个文件夹，里面有 `theme.json` 和图片，可以直接分享
-- **壁纸**：png / jpg / webp / avif / gif / svg，支持模糊、压暗和多种铺放方式
-- **毛玻璃**：界面表面半透明，透出 Windows 原生 acrylic / mica 材质或壁纸
-- **配色**：直接覆盖 ZCode 的设计 token，亮色和暗色分开配置，支持单独设强调色
-- **启动画面**：可改背景、换 logo 图片、换动画
-- **热更新**：修改配置或主题文件后，正在运行的 ZCode 约 1 秒内刷新，不用重启
+主题 · 壁纸 · 毛玻璃 · 启动画面<br>
+不用编译，不用维护 fork，随时逐字节还原。
 
-> 支持 Windows、Linux 和 macOS。已在 ZCode 3.14.3（Electron 41）上验证。
->
-> | 平台 | 安装格式 | 说明 |
-> |---|---|---|
-> | Windows 10/11 | NSIS 安装版 | 已验证 |
-> | Fedora / RHEL / 其他 rpm 系 | `.rpm` | 已验证路径（`/opt/ZCode`，apply 需要 sudo） |
-> | Debian / Ubuntu 等 deb 系、Arch 系 pacman | `.deb` / `.pacman` | 走同样的 `/opt` 布局，未逐一验证 |
-> | macOS | `.dmg`（拖入 /Applications） | apply 后自动做 ad-hoc 重签名 |
->
-> **AppImage 不支持**：它的 `app.asar` 封在只读 squashfs 里，无法打补丁。Linux 用户请安装 rpm / deb / pacman 包（Fedora：`sudo dnf install ./ZCode-*.x86_64.rpm`）。
+[![ZCode 3.14.3](https://img.shields.io/badge/ZCode-3.14.3_已验证-111?style=flat-square)](#平台支持)
+[![platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-111?style=flat-square)](#平台支持)
+[![node](https://img.shields.io/badge/node-%E2%89%A5_20-111?style=flat-square)](#快速开始)
+[![license](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
 
-## 安装
+<img src="docs/images/hero.webp" alt="雨夜壁纸铺满 ZCode，侧边栏和输入框半透明" width="100%">
+
+</div>
+
+<br>
+
+<table>
+<tr>
+<td width="33%" valign="top"><b>主题</b><br>一套主题就是一个文件夹，装着 <code>theme.json</code> 和图片。复制给别人就能用。</td>
+<td width="33%" valign="top"><b>壁纸</b><br>支持 png、jpg、webp、avif、svg，GIF 动图会直接播放。可以调模糊、缩放、位置和色彩。</td>
+<td width="33%" valign="top"><b>毛玻璃</b><br>界面半透明，透出壁纸或系统原生材质（Windows acrylic / mica、macOS vibrancy）。</td>
+</tr>
+<tr>
+<td valign="top"><b>配色</b><br>直接覆盖 ZCode 的设计 token，亮色和暗色分开配置。强调色和圆角都能单独改。</td>
+<td valign="top"><b>启动画面</b><br>背景、logo 图片和动画都能换。样式在首帧之前注入，不会先闪一下官方画面。</td>
+<td valign="top"><b>实时生效</b><br>改了配置或主题文件，正在运行的 ZCode 约 1 秒内刷新，不用重启。</td>
+</tr>
+</table>
+
+### 放心用
+
+- **不改原有字节**：补丁只往 `app.asar` 里追加文件，`restore` 能还原出和官方逐字节一致的文件。
+- **出错也不影响 ZCode**：Canvas 任何部分出问题，最坏结果只是外观没生效，ZCode 照常启动。
+- **没有后台进程**：不开调试端口，不常驻进程，不联网。
+- **官方更新照常进行**：更新后只是回到官方原样，重新 `apply` 一次即可。
+
+## 快速开始
 
 需要 Node.js 20 或更高版本。
 
 ```sh
 git clone https://github.com/Kevinzzz6/zcode-canvas.git
 cd zcode-canvas
-npm install
-npm run build
-npm link            # 之后可以直接用 zcode-canvas 命令；不想 link 就用 node dist/cli.js
+npm install && npm run build && npm link
+
+zcode-canvas apply          # 给 ZCode 打补丁
+zcode-canvas use endfield   # 切换主题，ZCode 实时刷新
 ```
 
-然后打补丁：
-
-- **Windows**：`zcode-canvas apply`。ZCode 装在 Program Files 这类受保护目录时，需要用管理员身份运行终端。
-- **Linux（rpm/deb/pacman）**：`sudo zcode-canvas apply`。ZCode 装在 `/opt/ZCode`（root 所有），补丁需要 root 权限；运行时和配置仍会装到**你的**用户目录（Canvas 会识别 `SUDO_USER`），不会放到 `/root` 下，文件所有权也会归还给你（无需手动 chown）。若 `sudo` 找不到命令，用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。
-- **macOS**：`zcode-canvas apply`（ZCode.app 不可写时加 `sudo`）。**请先启动过一次 ZCode 再 apply**：修改 `.app` 会破坏官方代码签名，Canvas 会自动做 ad-hoc 重签名（`codesign --force --deep --sign -`）；已被系统放行的应用重签后可以正常启动，但保存的登录凭据可能失效，需要重新登录。`restore` 会把 `app.asar` 逐字节还原，但签名仍停留在 ad-hoc——想完全回到官方签名，重新安装一次 ZCode 即可。
-
-`apply` 会把运行时装到 `~/.zcode-canvas/`，然后给 ZCode 打补丁。
-
-- **ZCode 没在运行**：立即生效，启动 ZCode 即可看到效果。
-- **ZCode 正在运行**（仅 Windows 会出现）：`app.asar` 被占用，Canvas 会先准备好补丁文件，再启动一个后台小进程等待。请从托盘**彻底退出** ZCode（关闭窗口只会缩到托盘），后台进程会自动换上补丁，之后重新启动 ZCode 即可。所以直接在 ZCode 自带的终端里执行也没问题。Linux 和 macOS 上文件可以随时替换，正在运行的 ZCode 不受影响，重启后生效。
-
-## 使用
-
-```sh
-zcode-canvas themes                          # 列出主题
-zcode-canvas use aurora                      # 切换主题，ZCode 实时刷新
-zcode-canvas set wallpaper.image ~/pic.jpg   # 换壁纸
-zcode-canvas set wallpaper.dim 0.4           # 壁纸压暗
-zcode-canvas set glass.opacity 0.6           # 界面半透明
-zcode-canvas set accent "#7c5cff"            # 强调色
-zcode-canvas unset wallpaper                 # 删除设置，回到主题默认值
-zcode-canvas new my-theme                    # 把当前设置存成主题（会复制用到的图片）
-zcode-canvas wallpaper import <项目目录>      # 导入 project.json type=image 的静态原图
-zcode-canvas wallpaper import <项目目录> --preview # 显式导入 scene/video/web 的静态预览图
-zcode-canvas status                          # 查看安装状态
-zcode-canvas open                            # ZCode 运行中打开外观中心，否则打开配置目录
-zcode-canvas restore                         # 还原官方 app.asar
-```
-
-所有设置都存在 `~/.zcode-canvas/config.json` 里，直接编辑这个文件也可以，保存后立即生效。`accent` 会覆盖主题强调色生成的 `primary`、`brand`、`ring` 和 `primary-foreground`；用户 `colors` 中显式指定的 token 优先。完整的键列表见 `zcode-canvas help`。
-
-### 内置主题
-
-| id | 说明 |
+| 平台 | `apply` 时要注意 |
 |---|---|
-| `glass` | 保留官方配色，透出系统原生毛玻璃（Windows acrylic / macOS vibrancy / Linux 透明窗口） |
-| `mica` | 保留官方配色，改用 Windows 11 Mica 材质（仅 Windows，其他平台效果等同 `glass`） |
-| `aurora` | 极光壁纸 + 深蓝配色，青色强调，适合暗色模式 |
-| `sakura` | 樱粉渐变 + 粉色强调，适合亮色模式 |
-| `eye-care` | 偏暖低亮的护眼配色，亮色和暗色都有；配色改编自 [zcode-eye-care](https://github.com/VoodooB0Ys/zcode-eye-care) |
-| `endfield` | 终末地官网风格：谷地黄强调、等高线地形壁纸、全直角；暗色墨黑底，亮色奶油纸底；改编自 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield) |
-| `endfield-wuling` | 同一风格的武陵青版本，同样适配暗色和亮色 |
+| Windows | ZCode 装在 Program Files 这类受保护目录时，要用管理员身份打开终端。 |
+| Linux | 用 `sudo zcode-canvas apply`。配置仍然放在你自己的用户目录下。 |
+| macOS | 先启动过一次 ZCode 再 `apply`。之后可能需要重新登录一次。 |
 
-自己写主题请看 [docs/theme-format.md](docs/theme-format.md)。主题格式目前是 format 1，之后只做向后兼容的新增；[schema/theme.schema.json](schema/theme.schema.json) 可以让编辑器补全和校验 `theme.json`，`zcode-canvas use` / `themes` 也会按同一份 schema 完整校验第三方主题。
+如果 `apply` 时 ZCode 正在运行（只有 Windows 会遇到），Canvas 会先准备好补丁。请从托盘**彻底退出** ZCode，补丁会自动换上，再打开 ZCode 就能看到效果。所以直接在 ZCode 自带的终端里运行也没问题。各平台的详细说明见[平台支持](#平台支持)。
 
-## Wallpaper Engine 本地导入
+<details>
+<summary><b>想让 Agent 帮你装？</b>把这段话发给它</summary>
 
-只读取用户明确指定的本地项目目录和 `project.json`，不会联网、解包 pkg、执行 JS/exe 或修改 Wallpaper Engine 目录。`type: image` 仅导入其入口图片；`scene`、`video`、`web` 默认拒绝，只有显式加 `--preview` 才导入 `preview` 预览图。支持 png、jpg/jpeg、webp、avif、svg、gif——GIF 的动画会直接在 CSS 背景里播放，相当于轻量动态壁纸；但不会运行任何 Wallpaper Engine 内容。选中的文件会复制到 Canvas 自有的 `~/.zcode-canvas/imports/wallpaper/` 并应用；若个人配置尚未设置壁纸 `dim`，导入会设为 `0`，保留其它配置。既有配置不会自动迁移。
+<br>
 
-```sh
-zcode-canvas wallpaper import "D:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\项目目录"
-zcode-canvas wallpaper import ./my-project --preview
+```text
+帮我安装 ZCode Canvas：https://github.com/Kevinzzz6/zcode-canvas
+按 README 的「快速开始」操作，装好后用 zcode-canvas status 确认补丁已安装。
+需要管理员权限、sudo 或退出 ZCode 的步骤请交给我，不要自己结束 ZCode 进程。
+最后切换到 endfield 主题。
 ```
 
-项目目录为必要参数；不会为了导入而扫描或修改 Steam Workshop。
+</details>
 
-### 外观中心
+## 外观中心
 
-每个 ZCode 主窗口的侧边都有一个小巧的 **外观** 入口，点击即可展开页内面板，背后的 IDE 就是实时预览。外观中心只在主窗口内显示；托盘、应用菜单、窗口内快捷键 `Ctrl/Cmd+Alt+Shift+O` 和 `zcode-canvas open` 都会打开最近使用或当前聚焦的主窗口面板。没有可用主窗口时，`zcode-canvas open` 安全地打开 Canvas 配置目录。入口默认在右侧、状态栏与常见通知区域上方；可以直接拖到左右边缘，右键隐藏或重置位置。不检测或依赖宿主的通知 DOM。
+每个 ZCode 主窗口右侧都有一个 **外观** 小按钮。点开就是面板，背后的界面就是实时预览。
 
-- **主题**：自动生成色卡，点击切换原生 / 内置 / 用户主题；用户的强调色、圆角、材质和壁纸等覆盖在切换主题时保留。
-- **我的壁纸**：三列缩略图浏览 `~/.zcode-canvas/imports/wallpaper/` 中已导入的图片，点击直接使用。“添加图片”打开由主窗口拥有的原生文件选择器，复制图片到 Canvas 自有库后应用；“恢复主题壁纸”清除壁纸覆盖。缩略图懒加载，GIF 冻结为静帧，实际 GIF 壁纸仍然播放。
-- **通用界面**：调整界面透明度、毛玻璃模糊和图片亮度；主题样式还可单独调整强调色、圆角和材质。
-- **壁纸微调**：调整铺放方式、X/Y 位置（含居中）、模糊、缩放、饱和度、亮度、对比度和灰度。拖动预览由主进程只读校验并生成完整 CSS，仅替换当前窗口样式，不写配置也不广播；过期预览会忽略。松手后才原子保存并同步所有主窗口；保存失败恢复已保存的效果。新导入的图片在未设置个人 `dim` 时默认不叠加旧遮罩（`dim: 0`），旧配置不会自动迁移；检测到旧遮罩时会在图片亮度旁提示，可直接清除。
-- **精确调节**：点击滑杆右侧的数值可直接输入（如 `100`、`18px`、`1.5×`），回车应用、Esc 取消，超出范围会自动限制并提示；方向键在模糊、缩放上也按 1px / 1% 步进（Shift ×10）。模糊和缩放的轨道对常用低值区间更细：一半轨道只对应四分之一的模糊范围，缩放 100% 位于轨道前四分之一处。轨道上的细刻度标出主题默认值。
-- **为什么没变化**：调节被其他条件挡住时，面板会就近说明原因。界面完全不透明时，壁纸被遮住，毛玻璃模糊也不生效（该滑杆禁用）；壁纸会盖住 Windows 原生材质；图片在当前窗口某个方向没有裁切余量时，对应的位置滑杆不会改变画面（只提示，因为其他窗口尺寸可能不同）；拉伸铺满且缩放为 100% 时位置无效（禁用）。
-- **覆盖重置**：单项偏离主题默认时，行尾出现 ↺，只删除这一项个人覆盖，恢复跟随主题。恢复主题默认会删除个人 `glass`、`accent` 和 `radius` 覆盖，保留壁纸选择及相关个人设置。切换主题时个人覆盖保留。
+<img src="docs/images/demo.webp" alt="在外观中心里依次切换终末地 · 武陵青、樱主题，选一张壁纸，再拖动透明度和模糊滑杆，界面当场刷新" width="100%">
 
-再次点击入口、按 Esc、点击外部或关闭按钮收起，保留已应用的外观。浮层不推挤编辑器，也不改变代码布局。快捷键仅在 ZCode 主窗口生效，录制快捷键时会让位；托盘优先打开最近使用的主窗口。批量导入等管理操作继续使用 CLI，不放进浮层。
+<p align="center"><sub>换主题、换壁纸、拖滑杆，界面当场刷新，不用重启</sub></p>
 
-外观配置仍全局共享，走现有主进程校验、原子写入及热更新，不需要重启 ZCode。入口位置/隐藏仅是 UI 偏好，不改变主题配置。
+<table>
+<tr>
+<td width="50%" align="center" valign="top"><img src="docs/images/panel-tuning.webp" alt="壁纸细节：模糊、饱和度、对比度、灰度、缩放、位置" width="85%"></td>
+<td width="50%" align="center" valign="top"><img src="docs/images/panel-endfield.webp" alt="在终末地主题下打开外观中心" width="85%"></td>
+</tr>
+<tr>
+<td align="center"><sub>展开"壁纸细节"，每一项都能精确调节</sub></td>
+<td align="center"><sub>换成终末地主题后，面板也跟着换色</sub></td>
+</tr>
+</table>
 
-官方更新会整体替换 `app.asar`，补丁随之消失，ZCode 只是回到官方原样，不会有任何损坏。重新执行一次 `zcode-canvas apply`（只需几秒）即可恢复补丁。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
+- **主题**：点色卡切换主题。你改过的强调色、圆角、材质和壁纸在切换时都会保留。
+- **我的壁纸**：浏览已导入的图片，点一下就用上。"添加图片"会把图片复制进 Canvas 自己的壁纸库。
+- **调节**：拖动滑杆就能实时预览，松手后才保存，并同步到所有窗口。点击数值可以直接输入，比如 `18px`、`1.5×`。
+- **为什么没变化**：某项调节被其他设置挡住时，面板会就近说明原因。比如界面完全不透明时，壁纸就看不到。
+- **单项重置**：偏离主题默认值的项，行尾会出现 ↺，点一下只恢复这一项。
+
+也可以用快捷键 `Ctrl/Cmd+Alt+Shift+O`、托盘菜单、应用菜单或 `zcode-canvas open` 打开面板。
+
+<details>
+<summary>更多细节</summary>
+
+<br>
+
+- 入口默认在窗口右侧、状态栏上方。可以拖到左右两侧的边缘，右键可以隐藏或重置位置。入口位置只是界面偏好，不影响主题配置。
+- 面板浮在界面上方，不会挤压编辑器。再次点击入口、按 Esc、点击面板外部或点关闭按钮都能收起，已应用的外观会保留。
+- 模糊和缩放滑杆在常用的低值区间更细：拖到轨道一半只对应四分之一的模糊范围，缩放 100% 在轨道约四分之一处。轨道上的细刻度标出主题默认值。方向键按 1px / 1% 步进，按住 Shift 时每次 ×10。
+- 拖动预览只改当前窗口，不写配置。保存失败时会恢复成上一次保存的效果。
+- "恢复主题默认"会删除个人的 `glass`、`accent` 和 `radius` 覆盖，保留壁纸相关的设置。
+- 快捷键只在 ZCode 主窗口里生效。在 ZCode 里录制快捷键时，Canvas 的快捷键会自动让开。
+- 批量导入等管理操作仍然用命令行完成。
+
+</details>
+
+## 主题
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/theme-endfield-dark.webp" alt="终末地 · 谷地黄，暗色"></td>
+<td width="50%"><img src="docs/images/theme-endfield-light.webp" alt="终末地 · 谷地黄，亮色"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><b>终末地 · 谷地黄</b> <code>endfield</code><br><sub>谷地黄强调色、等高线地形壁纸、全直角。暗色是墨黑底，亮色是奶油纸底。</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/theme-endfield-wuling-dark.webp" alt="终末地 · 武陵青，暗色"></td>
+<td><img src="docs/images/theme-endfield-wuling-light.webp" alt="终末地 · 武陵青，亮色"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><b>终末地 · 武陵青</b> <code>endfield-wuling</code><br><sub>同一套设计的青色版本，亮色和暗色都有。</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/theme-sakura-light.webp" alt="樱，亮色"></td>
+<td><img src="docs/images/splash-endfield.webp" alt="终末地主题的启动画面"></td>
+</tr>
+<tr>
+<td align="center"><b>樱</b> <code>sakura</code><br><sub>柔和的樱粉渐变配粉色强调，适合亮色模式。</sub></td>
+<td align="center"><b>启动画面</b><br><sub>主题也能换掉启动画面，图为终末地的启动字标。</sub></td>
+</tr>
+</table>
+
+全部内置主题：
+
+| id | 名称 | 说明 |
+|---|---|---|
+| `endfield` | 终末地 · 谷地黄 | 改编自 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield) |
+| `endfield-wuling` | 终末地 · 武陵青 | 同上，青色版本 |
+| `sakura` | 樱 | 樱粉渐变，粉色强调 |
+| `aurora` | 极光 | 深蓝夜空与极光渐变壁纸，青色强调，适合暗色 |
+| `eye-care` | 护眼 | 偏暖低亮的底色配高对比正文，亮暗都有；配色改编自 [zcode-eye-care](https://github.com/VoodooB0Ys/zcode-eye-care) |
+| `glass` | 原生毛玻璃 | 保留官方配色，只透出系统原生毛玻璃 |
+| `mica` | Mica | 保留官方配色，改用 Windows 11 Mica 材质（其他平台等同 `glass`） |
+
+想自己做主题，可以先用 `zcode-canvas new my-theme` 把当前设置存成主题，再照 [docs/theme-format.md](docs/theme-format.md) 修改。[schema/theme.schema.json](schema/theme.schema.json) 能让编辑器补全和校验 `theme.json`，`use` 和 `themes` 命令也会按它检查第三方主题。主题格式目前是 format 1，以后只做向后兼容的新增。
+
+## 壁纸
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/wallpaper-light.webp" alt="同一张壁纸在亮色模式下"></td>
+<td width="50%"><img src="docs/images/wallpaper-dark.webp" alt="同一张壁纸在暗色模式下"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><sub>同一张壁纸，亮色和暗色下界面会自动换成对应的底色</sub></td>
+</tr>
+</table>
+
+```sh
+zcode-canvas set wallpaper.image ~/pic.jpg   # 换壁纸
+zcode-canvas set glass.opacity 0.5           # 界面半透明，让壁纸透出来
+zcode-canvas set wallpaper.dark.image ~/night.jpg   # 暗色模式单独用一张
+```
+
+**导入 Wallpaper Engine 壁纸**：`zcode-canvas wallpaper import <项目目录>` 会导入 `type: image` 项目的原图。`scene`、`video`、`web` 类型只有加上 `--preview` 才会导入预览图。整个过程只读取你指定的目录，不联网，不执行其中的任何内容，也不修改 Wallpaper Engine 的文件。
+
+```sh
+zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960\<项目 id>"
+```
+
+导入的图片存在 `~/.zcode-canvas/imports/wallpaper/`，会同时出现在外观中心的"我的壁纸"里。
+
+## 命令行
+
+```sh
+zcode-canvas status                      # 查看安装状态和当前主题
+zcode-canvas themes                      # 列出主题
+zcode-canvas use <id | none>             # 切换主题
+zcode-canvas set accent "#7c5cff"        # 强调色
+zcode-canvas set radius 0                # 全直角
+zcode-canvas unset wallpaper             # 删除一项或一组设置，回到主题默认值
+zcode-canvas new <id>                    # 把当前设置存成主题（会复制用到的图片）
+zcode-canvas open                        # 打开外观中心；ZCode 没运行时打开配置目录
+zcode-canvas help                        # 所有命令和可设置的键
+```
+
+所有设置都存在 `~/.zcode-canvas/config.json`，直接编辑也可以，保存后立即生效。个人设置会叠加在主题之上：比如 `accent` 会覆盖主题的强调色，在 `colors` 里显式写出的 token 优先级最高。
+
+## ZCode 更新之后
+
+官方更新会整体替换 `app.asar`，补丁也就随之消失，ZCode 回到官方原样，不会损坏。重新运行一次 `zcode-canvas apply` 就能恢复，只需要几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
 
 ## 卸载
 
-```powershell
+```sh
 zcode-canvas restore           # 还原 app.asar，和官方文件逐字节一致
-zcode-canvas restore --purge   # 同时删除 ~/.zcode-canvas
+zcode-canvas restore --purge   # 同时删除 ~/.zcode-canvas（包括你的主题和壁纸库）
 ```
 
-临时禁用有两种方式：在 `config.json` 里设 `"enabled": false`；或者用环境变量 `ZCODE_CANVAS_DISABLE=1` 启动 ZCode，这时补丁不会加载任何东西。
+想临时关掉 Canvas 有两种方法：在 `config.json` 里设置 `"enabled": false`；或者用环境变量 `ZCODE_CANVAS_DISABLE=1` 启动 ZCode，这时补丁什么都不会加载。
+
+## 常见问题
+
+<details>
+<summary><b>apply 之后看不到变化</b></summary>
+
+<br>
+
+先运行 `zcode-canvas status`：
+
+- 显示"有待 ZCode 退出后替换的文件"：ZCode 还没彻底退出。请从托盘退出（关闭窗口只会缩到托盘），再重新打开。
+- 补丁显示"未安装"：ZCode 可能刚更新过，重新 `apply` 一次。
+- Canvas 显示"已关闭"：`config.json` 里的 `enabled` 被设成了 `false`。
+
+</details>
+
+<details>
+<summary><b>设置了壁纸却看不到</b></summary>
+
+<br>
+
+界面完全不透明时会把壁纸盖住。把 `glass.opacity` 调低（比如 `0.5`），或者在外观中心里调低"界面透明"。另外，在 Windows 上壁纸会盖住系统原生的毛玻璃材质，两者只能看到一个。
+
+</details>
+
+<details>
+<summary><b>Linux 上毛玻璃没有效果</b></summary>
+
+<br>
+
+Linux 的窗口透明依赖桌面合成器。合成器不支持时，毛玻璃会退化成纯色，壁纸不受影响，因为壁纸是画在页面内部的。
+
+</details>
+
+<details>
+<summary><b>macOS 上 apply 之后要重新登录</b></summary>
+
+<br>
+
+修改 `.app` 会破坏官方代码签名，Canvas 会自动做 ad-hoc 重签名，保存的登录凭据可能因此失效。`restore` 会把 `app.asar` 逐字节还原，但签名仍然是 ad-hoc 的。想完全回到官方签名，重新安装一次 ZCode 即可。
+
+</details>
+
+<details>
+<summary><b>支持 AppImage 吗</b></summary>
+
+<br>
+
+不支持。AppImage 的 `app.asar` 封在只读文件系统里，没法打补丁。请改装 rpm、deb 或 pacman 包，比如 Fedora 上用 `sudo dnf install ./ZCode-*.x86_64.rpm`。
+
+</details>
+
+## 平台支持
+
+已在 ZCode 3.14.3（Electron 41）上验证。
+
+| 平台 | 安装格式 | 状态 |
+|---|---|---|
+| Windows 10 / 11 | NSIS 安装版 | 已验证 |
+| Fedora / RHEL 等 rpm 系 | `.rpm`（装在 `/opt/ZCode`） | 已验证 |
+| Debian / Ubuntu、Arch | `.deb` / `.pacman` | 目录结构相同，未逐一验证 |
+| macOS | `.dmg`（拖入 /Applications） | `apply` 后自动重签名 |
+| Linux AppImage | — | 不支持 |
+
+<details>
+<summary>各平台的详细说明</summary>
+
+<br>
+
+- **Windows**：ZCode 装在受保护目录时，需要用管理员身份运行终端。ZCode 正在运行时 `app.asar` 会被占用，Canvas 会先准备好补丁，再启动一个后台小进程等 ZCode 退出后替换。
+- **Linux**：ZCode 装在 `/opt/ZCode`，属于 root，所以 `apply` 需要 sudo。Canvas 会识别 `SUDO_USER`，把运行时和配置装到**你的**用户目录而不是 `/root`，文件所有权也会交还给你。如果 sudo 找不到命令，可以用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。文件可以随时替换，重启 ZCode 后生效。
+- **macOS**：ZCode.app 不可写时加 `sudo`。请先启动过一次 ZCode 再 `apply`，已被系统放行的应用重签名后才能正常打开。重签名的影响见[常见问题](#常见问题)。
+- ZCode 装在非默认位置时，可以用 `--zcode <目录>` 指定。
+
+</details>
 
 ## 工作原理
 
-ZCode 开源后，很多事情可以直接从源码里确认，不必再靠猜。分析过程见 [docs/analysis.md](docs/analysis.md)，下面是最终的实现方式。
+1. **补丁只追加，不修改**。`app.asar` 里只多出三样东西：一个改了 `main` 字段的 `package.json`、一个约 20 行的引导脚本，以及还原所需的记录。第一次打补丁前，Canvas 会先验证官方 `app.asar` 能被逐字节还原，验证不通过就拒绝打补丁。
+2. **样式在首帧之前注入**。运行时在 ZCode 主进程里给页面注册预加载脚本，用 `webFrame.insertCSS` 注入样式，所以连启动画面都能改。样式不写进 DOM，React 碰不到它。
+3. **只依赖稳定的结构**：ZCode 的 `--color-*` 设计 token、主题 class、窗口外框和启动画面节点。ZCode 本来就用了半透明窗口，只是被不透明的外框盖住了，所以毛玻璃只需要把这些 token 调成半透明。
 
-1. **补丁只改两处，并且可以完全还原**。补丁不动 `app.asar` 里任何原有字节，只追加三个文件：
-   - 改过 `main` 字段的 `package.json`；
-   - 约 20 行的引导脚本 `out/zcode-canvas/boot.mjs`；
-   - 还原所需的记录 `out/zcode-canvas/restore.json`。
-
-   首次打补丁前会独立校验官方 `app.asar` 的头部能被逐字节往返重写——校验不过就拒绝打补丁，保证 `restore` 还原出的文件与官方原文件逐字节一致不是一句空话。
-
-   引导脚本先加载 `~/.zcode-canvas/runtime/main.cjs`，再导入 ZCode 原来的入口。运行时加载失败不会影响 ZCode 启动。
-2. **运行时在 ZCode 的主进程里运行**。它给默认 session 注册一个预加载脚本，在页面首帧之前用 `webFrame.insertCSS` 注入样式，所以启动画面也能改。样式不写进 DOM，React 碰不到它，也就不需要 MutationObserver。窗口材质按平台切换：Windows 用 `setBackgroundMaterial`，macOS 用 `setVibrancy`，Linux 窗口本身就是透明的不用切换。配置文件变化时通过 IPC 推送新样式。
-3. **样式只依赖 ZCode 源码里明确的结构**：
-   - `--color-*` 设计 token 和 `.dark` / `.theme-zai-*` 主题 class；
-   - 窗口外框 `[data-desktop-window-frame]`；
-   - 启动画面的 `#loading` 和 `body.zcode-startup-ready`。
-
-   Windows 主窗口本身就是 acrylic 材质、macOS 是原生 vibrancy、Linux 是透明窗口，只是被一层不透明（macOS 为半不透明）的外框背景盖住了，所以毛玻璃效果只需要把这些 token 调成半透明。Linux 的窗口透明依赖合成器；不支持时毛玻璃退化为纯色，壁纸不受影响（壁纸绘制在页面内部）。
-4. **壁纸直接用 `file://` 地址**。主界面是没有 CSP 的 `file://` 页面，因此不需要 data URL、本地 HTTP 服务或 CDP。
-5. **不开任何调试端口，没有常驻进程**。从开始菜单、任务栏、协议链接或托盘启动 ZCode 都会生效。
+调研过程见 [docs/analysis.md](docs/analysis.md)，依赖了哪些 ZCode 内部实现、各部分的稳定性承诺见 [docs/design.md](docs/design.md)。
 
 ## 开发
 
-改代码或提 issue 前请先读 [docs/design.md](docs/design.md)：它规定了安全底线、各部分的稳定程度、依赖 ZCode 内部实现的清单，以及哪些问题要修、哪些不修。
+改代码或提 issue 前请先读 [docs/design.md](docs/design.md)，它规定了安全底线、各部分的稳定程度，以及哪些问题要修、哪些不修。
 
 ```sh
 npm run typecheck
@@ -147,11 +304,17 @@ npm test
 npm run build
 ```
 
-`scripts/sandbox.mjs` 可以启动一份官方 ZCode 的副本，身份和数据目录完全隔离，配合 `scripts/cdp.mjs` 截图验证，不会碰到你正在使用的 ZCode。这两个脚本目前只在 Windows 上可用，仅用于开发，Canvas 本身不使用 CDP。
+<details>
+<summary>沙盒与冒烟测试</summary>
 
-构建后可运行 `node scripts/runtime-smoke.mjs`，用隔离的 Electron 实例验证两个主窗口同步、辅助窗口排除和 IPC 拒绝越界访问，不打开调试端口。启动开发沙箱并在沙箱里准备好含 GIF 的测试壁纸库后，可运行 `node scripts/overlay-smoke.mjs` 验证真实浮层的点选、预览/提交、失败恢复、GIF 静帧、入口拖动/隐藏/唤回与焦点恢复，并保存截图。后者仅接受明确指定的沙箱目录，临时配置修改会在结束时还原。
+<br>
 
-`endfield` 两套主题的壁纸和启动字标由 `npm run build:endfield` 生成，生成结果已提交；只有想换地形（`--seed <n>`）或改排版时才需要重新运行。
+- `scripts/sandbox.mjs` 会启动一份官方 ZCode 的副本，身份和数据目录完全隔离；配合 `scripts/cdp.mjs` 可以截图验证，不会碰到你正在用的 ZCode。这两个脚本目前只支持 Windows，仅供开发使用，Canvas 本身不使用 CDP。
+- `node scripts/runtime-smoke.mjs` 会在隔离的 Electron 实例里验证多窗口同步、辅助窗口排除和 IPC 越界拒绝，不打开调试端口。
+- `node scripts/overlay-smoke.mjs` 会在开发沙箱里验证真实外观中心的点选、预览与提交、失败恢复、入口拖动与隐藏等行为，并保存截图。它只接受明确指定的沙箱目录，临时改动的配置会在结束时还原。
+- `endfield` 两套主题的壁纸和启动字标由 `npm run build:endfield` 生成，生成结果已经提交。只有想换地形（`--seed <n>`）或改排版时才需要重新运行。
+
+</details>
 
 ## 致谢
 
@@ -170,4 +333,4 @@ npm run build
 
 ## 许可
 
-MIT
+[MIT](LICENSE)
