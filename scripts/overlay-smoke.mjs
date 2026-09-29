@@ -4,11 +4,17 @@
 // node scripts/overlay-smoke.mjs [sandbox-directory] [port]
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const sandbox = resolve(process.argv[2] ?? "../_sandbox");
 const port = Number(process.argv[3] ?? 9555);
+// The overlay under test must be this build; otherwise failures only describe an older runtime.
+for (const file of ["main.cjs", "preload.cjs"]) {
+  const deployed = join(sandbox, "home", ".zcode-canvas", "runtime", file);
+  assert.ok(readFileSync(deployed).equals(readFileSync(resolve("dist", "runtime", file))),
+    `sandbox runs a stale ${file}: run npm run build, copy dist/runtime/*.cjs to ${dirname(deployed)}, then restart the sandbox ZCode`);
+}
 const prefix = pathToFileURL(join(sandbox, "ZCode")).href.toLowerCase() + "/";
 const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
 const target = targets.find((t) => t.type === "page" && t.url.toLowerCase().startsWith(prefix) && /out\/renderer\/index\.html/.test(t.url) && !t.url.includes("windowKind="));
