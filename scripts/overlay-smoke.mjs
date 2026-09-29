@@ -56,25 +56,27 @@ try {
   assert.ok(JSON.parse(readFileSync(configFile, "utf8")).wallpaper.image.endsWith(selection));
   assert.equal(await ui('return this.querySelector(".tile[aria-pressed=true]").dataset.id'), selection);
   const saved = readFileSync(configFile, "utf8");
-  await ui('const slider=this.getElementById("dim");slider.value="0.61";slider.dispatchEvent(new Event("input",{bubbles:true}))');
+  await ui('const slider=this.getElementById("brightness");slider.value="0.61";slider.dispatchEvent(new Event("input",{bubbles:true}))');
+  await pause(100);
   assert.equal(readFileSync(configFile, "utf8"), saved, "drag preview must not write config");
-  assert.match(await ui('return getComputedStyle(document.body,"::after").backgroundColor'), /0\.61/);
-  await ui('this.getElementById("dim").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert.match(await ui('return getComputedStyle(document.body,"::before").filter'), /0\.61/);
+  await ui('this.getElementById("brightness").dispatchEvent(new Event("change",{bubbles:true}))');
   await pause();
-  assert.equal(JSON.parse(readFileSync(configFile, "utf8")).wallpaper.dim, .61);
+  assert.equal(JSON.parse(readFileSync(configFile, "utf8")).wallpaper.brightness, .61);
 
   // Force a real failed write by making the existing config unreadable to the handler.
   const beforeFailure = readFileSync(configFile, "utf8");
   writeFileSync(configFile, "{");
-  await ui('const slider=this.getElementById("dim");slider.value="0.2";slider.dispatchEvent(new Event("input",{bubbles:true}));slider.dispatchEvent(new Event("change",{bubbles:true}))');
+  await ui('const slider=this.getElementById("brightness");slider.value="0.2";slider.dispatchEvent(new Event("input",{bubbles:true}));slider.dispatchEvent(new Event("change",{bubbles:true}))');
   await pause();
   assert.match(await ui('return this.getElementById("status").textContent'), /未能应用|暂时无法/);
-  assert.equal(await ui('return this.getElementById("dim").value'), "0.61", "failed save restores slider");
-  assert.match(await ui('return getComputedStyle(document.body,"::after").backgroundColor'), /0\.61/, "failed save clears preview CSS");
+  assert.equal(await ui('return this.getElementById("brightness").value'), "0.61", "failed save restores slider");
+  assert.match(await ui('return getComputedStyle(document.body,"::before").filter'), /0\.61/, "failed save clears preview CSS");
   writeFileSync(configFile, beforeFailure);
   await pause();
 
-  const sliderPoint = await ui('const r=this.getElementById("dim").getBoundingClientRect();return {x:r.x+r.width*.5,y:r.y+r.height/2}');
+  await ui('this.getElementById("brightness").scrollIntoView({block:"nearest"})');
+  const sliderPoint = await ui('const r=this.getElementById("brightness").getBoundingClientRect();return {x:r.x+r.width*.5,y:r.y+r.height/2}');
   const beforeDrag = readFileSync(configFile, "utf8");
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...sliderPoint });
   await send("Input.dispatchMouseEvent", { type: "mousePressed", ...sliderPoint, button: "left", clickCount: 1 });
@@ -84,9 +86,68 @@ try {
   assert.equal(await ui('return this.getElementById("panel").hidden'), false, "drag outside keeps the panel open");
   await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: 500, y: sliderPoint.y, button: "left", clickCount: 1 });
   await pause();
-  assert.equal(JSON.parse(readFileSync(configFile, "utf8")).wallpaper.dim, 0, "release outside commits captured slider");
-  await ui('const s=this.getElementById("dim");s.value="0.61";s.dispatchEvent(new Event("input",{bubbles:true}));s.dispatchEvent(new Event("change",{bubbles:true}))');
+  assert.equal(JSON.parse(readFileSync(configFile, "utf8")).wallpaper.brightness, 0, "release outside commits captured slider");
+  await ui('const s=this.getElementById("brightness");s.value="0.61";s.dispatchEvent(new Event("input",{bubbles:true}));s.dispatchEvent(new Event("change",{bubbles:true}))');
   await pause();
+
+  const change = async (id, value) => {
+    await ui(`const input=this.getElementById(${JSON.stringify(id)});input.value=${JSON.stringify(String(value))};input.dispatchEvent(new Event("input",{bubbles:true}));input.dispatchEvent(new Event("change",{bubbles:true}))`);
+    await pause();
+  };
+  const config = () => JSON.parse(readFileSync(configFile, "utf8"));
+  await change("transparency", 55);
+  assert.ok(Math.abs(config().glass.opacity - .45) < .00001);
+  await change("glassBlur", 18);
+  assert.equal(config().glass.blur, 18);
+  // A Canvas-owned probe with the existing contracted CSS class checks the composited surface,
+  // without depending on the host's internal editor or notification DOM tree.
+  await ui('const frame=document.createElement("div");frame.id="canvas-smoke-frame";frame.innerHTML="<div id=\\"root\\"><div class=\\"bg-background\\" id=\\"canvas-smoke-surface\\"></div></div>";document.body.append(frame)');
+  assert.match(await ui('return getComputedStyle(document.getElementById("canvas-smoke-surface")).backdropFilter'), /blur\(18px\)/);
+  const savedGlass = readFileSync(configFile, "utf8");
+  await ui('const input=this.getElementById("glassBlur");input.value="0";input.dispatchEvent(new Event("input",{bubbles:true}))');
+  await pause(100);
+  assert.equal(readFileSync(configFile, "utf8"), savedGlass);
+  assert.equal(await ui('return getComputedStyle(document.getElementById("canvas-smoke-surface")).backdropFilter'), "none", "preview must remove old blur rules");
+  await ui('this.getElementById("glassBlur").dispatchEvent(new Event("change",{bubbles:true}))');
+  await pause();
+  assert.equal(config().glass.blur, 0);
+  await ui('this.getElementById("wallpaper-details").open=true');
+  await change("positionX", 25);
+  await change("positionY", 75);
+  assert.equal(config().wallpaper.position, "25% 75%");
+  assert.equal(await ui('return this.getElementById("positionX-value").textContent'), "25%");
+  await ui('this.getElementById("center-position").click()');
+  await pause();
+  assert.equal(config().wallpaper.position, "50% 50%");
+  await ui('this.getElementById("theme-details").open=true');
+  await change("accent", "#4488cc");
+  assert.equal(config().accent, "#4488cc");
+  assert.equal(await ui('return getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim()'), "#4488cc");
+  await change("radius", .5);
+  await ui('this.querySelector(".theme[data-id=aurora]").click()');
+  await pause();
+  assert.equal(config().theme, "aurora");
+  assert.equal(config().wallpaper.brightness, .61);
+  assert.equal(config().radius, .5);
+  assert.ok(Math.abs(config().glass.opacity - .45) < .00001, "personal transparency survives theme switches");
+  const selectedImage = config().wallpaper.image;
+  await ui('this.getElementById("reset-theme").click()');
+  await pause();
+  assert.equal(config().glass, undefined);
+  assert.equal(config().accent, undefined);
+  assert.equal(config().radius, undefined);
+  assert.equal(config().wallpaper.image, selectedImage);
+  assert.equal(await ui('return this.getElementById("glassBlur").value'), "18", "reset follows current theme");
+  await ui('this.getElementById("reset-tuning").click()');
+  await pause();
+  assert.equal(config().wallpaper.brightness, undefined);
+  assert.equal(config().wallpaper.image, selectedImage);
+  assert.equal(await ui('return this.getElementById("overlay-notice").hidden'), false, "theme overlay remains discoverable");
+  await ui('this.getElementById("clear-overlay").click()');
+  await pause();
+  assert.equal(config().wallpaper.dim, 0);
+  assert.equal(await ui('return this.getElementById("overlay-notice").hidden'), true);
+  await ui('this.getElementById("wallpaper-details").open=false;this.getElementById("theme-details").open=false;this.querySelector(".content").scrollTop=0;document.getElementById("canvas-smoke-frame").remove()');
 
   // Visit all rows: each loaded GIF becomes a static canvas and releases its animated image.
   const scrollHeight = await ui('return this.getElementById("library").scrollHeight');
@@ -140,5 +201,6 @@ try {
   writeFileSync(configFile, original);
   await ui(`localStorage.${prefs === null ? 'removeItem("zcode-canvas:entry:v1")' : `setItem("zcode-canvas:entry:v1",${JSON.stringify(prefs)})`}`);
   await ui('document.getElementById("canvas-smoke-editor")?.remove()');
+  await ui('document.getElementById("canvas-smoke-frame")?.remove()');
   ws.close();
 }

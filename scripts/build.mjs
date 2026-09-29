@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 
 rmSync("dist", { recursive: true, force: true });
 
@@ -32,16 +32,3 @@ await build({
   platform: "browser",
   external: ["electron"],
 });
-
-await build({
-  ...common,
-  entryPoints: ["src/runtime/panel-preload.ts"],
-  outfile: "dist/runtime/panel-preload.cjs",
-  format: "cjs",
-  platform: "browser",
-  external: ["electron"],
-});
-
-mkdirSync("dist/runtime/panel", { recursive: true });
-copyFileSync("src/runtime/panel.html", "dist/runtime/panel/panel.html");
-copyFileSync("src/runtime/panel.js", "dist/runtime/panel/panel.js");

@@ -19,6 +19,7 @@ test("imports image projects and preserves existing config", () => {
   assert.equal(result.config.theme, "aurora");
   assert.equal(result.config.glass?.opacity, 0.5);
   assert.equal(result.config.wallpaper?.image, result.destination);
+  assert.equal(result.config.wallpaper?.dim, 0, "new imports do not silently add an overlay");
   assert.equal(readFileSync(result.destination, "utf8"), "png");
   // The config on disk already reflects the import, written atomically.
   assert.equal(readConfig(home).wallpaper?.image, result.destination);
@@ -29,6 +30,20 @@ test("imports image projects and preserves existing config", () => {
   assert.equal(readFileSync(result.destination, "utf8"), "png");
   assert.equal(readConfig(home).wallpaper?.image, second.destination);
   assert.equal(readdirSync(join(home, "imports", "wallpaper")).length, 2);
+});
+
+test("import preserves an explicitly configured legacy overlay", () => {
+  const root = mkdtempSync(join(tmpdir(), "we-overlay-"));
+  const project = join(root, "project");
+  const home = join(root, "home");
+  mkdirSync(project, { recursive: true });
+  mkdirSync(home, { recursive: true });
+  writeFileSync(join(project, "project.json"), JSON.stringify({ type: "image", file: "main.png" }));
+  writeFileSync(join(project, "main.png"), "png");
+  writeFileSync(join(home, "config.json"), JSON.stringify({ wallpaper: { dark: { dim: .4 } } }));
+  const config = importWallpaper(project, home).config;
+  assert.equal(config.wallpaper?.dim, undefined);
+  assert.equal(config.wallpaper?.dark?.dim, .4);
 });
 
 test("requires explicit preview for scene/video/web; accepts gif, rejects non-image formats", () => {

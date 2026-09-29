@@ -1,14 +1,13 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
-import { knobValue, knobs, previewCss, type Knob } from "./overlay-preview.ts";
+import { formatKnob, knobValue, knobs, type Knob } from "./overlay-preview.ts";
 
 export interface OverlayApi {
   get(): Promise<PanelData>;
   apply(input: PanelInput): Promise<unknown>;
   selectWallpaper(id: string): Promise<unknown>;
   pickWallpaper(): Promise<{ canceled: boolean }>;
-  manage(): Promise<unknown>;
-  preview(css: string): void;
+  preview(input: PanelInput): Promise<void>;
   clearPreview(): void;
   log(message: string): void;
 }
@@ -17,6 +16,20 @@ const PREF_KEY = "zcode-canvas:entry:v1";
 type Preferences = { hidden: boolean; side: "left" | "right"; y: number | null; seen: boolean };
 const defaults = (): Preferences => ({ hidden: false, side: "right", y: null, seen: false });
 const paletteIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.5-3.3 1.5 1.5 0 0 1 1.1-2.5H18A3 3 0 0 0 21 12a9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="11" cy="6.8" r=".8"/><circle cx="15.5" cy="8" r=".8"/></svg>';
+
+function pickerColor(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const color = value.trim();
+  if (/^#[0-9a-f]{6}$/i.test(color)) return color.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(color)) return `#${[...color.slice(1)].map((digit) => digit + digit).join("").toLowerCase()}`;
+  const rgb = /^rgb\(([^)]+)\)$/i.exec(color);
+  if (!rgb) return null;
+  const channels = rgb[1]?.split(/[\s,]+/).filter(Boolean) ?? [];
+  if (channels.length !== 3 || channels.some((channel) => !/^\d{1,3}(?:\.\d+)?$/.test(channel))) return null;
+  const values = channels.map(Number);
+  if (values.some((channel) => channel < 0 || channel > 255)) return null;
+  return `#${values.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("")}`;
+}
 
 /** Isolated, owned DOM only. No global bridge, host selectors, polling, or notification observer. */
 export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void } {
@@ -36,13 +49,21 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
         <button class="icon" id="options" aria-label="更多选项" aria-haspopup="true">···</button>
         <button class="icon" id="close" aria-label="关闭外观面板"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button></header>
       <div class="content">
-        <div class="label">主题<span class="spacer"></span><small>独立配色，随选随用</small></div><div class="themes" id="themes"></div>
+        <div class="label">主题<span id="theme-custom" class="custom-tag" hidden>已自定义</span><span class="spacer"></span><small>独立配色，随选随用</small></div><div class="themes" id="themes"></div>
         <div class="label wallpaper-heading">我的壁纸<small id="count"></small><span class="spacer"></span><button id="pick" class="text-button">＋ 添加图片</button></div>
         <div class="library" id="library" aria-label="壁纸库"></div>
         <div class="current"><span id="current"></span><button id="clear" class="text-button" title="清除个人壁纸覆盖，恢复主题自带壁纸">恢复主题壁纸</button></div>
-        <div class="tuning"><div id="primary-knobs"></div>
-          <details id="details"><summary>更多调节</summary><div id="extra-knobs"></div>
+        <div class="tuning"><div class="label compact">常用调节</div><div id="primary-knobs"></div>
+          <div id="overlay-notice" class="overlay-notice" hidden>旧遮罩正在生效 <button id="clear-overlay" class="text-button">清除遮罩</button></div>
+          <details id="theme-details"><summary>主题细节<span id="theme-detail-custom" class="custom-tag" hidden>已自定义</span></summary><div id="theme-knobs"></div>
+            <label class="select-row">强调色<span class="spacer"></span><small id="accent-current" class="accent-current"></small><input type="color" id="accent" aria-label="强调色"></label>
+            <label class="select-row" id="material-row">原生材质<select id="material" aria-label="原生材质"><option value="none">无</option><option value="acrylic">亚克力</option><option value="mica">云母</option><option value="tabbed">标签云母</option></select></label>
+            <button id="reset-theme" class="text-button" title="恢复主题默认外观，保留当前壁纸">恢复主题默认</button>
+          </details>
+          <details id="wallpaper-details"><summary>壁纸细节<span id="wallpaper-custom" class="custom-tag" hidden>已自定义</span></summary><div id="wallpaper-knobs"></div>
             <label class="select-row">铺放方式<select id="fit" aria-label="铺放方式"><option value="cover">填满</option><option value="contain">适应</option><option value="fill">拉伸</option><option value="center">居中</option><option value="tile">平铺</option></select></label>
+            <div class="hint">位置按图片和窗口的剩余空间对齐；填满时会调整裁切。</div>
+            <button id="center-position" class="text-button" title="将水平和垂直位置恢复到 50%">居中图片</button>
             <button id="reset-tuning" class="text-button">重置壁纸调节</button>
           </details>
         </div>
@@ -62,7 +83,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   let busy = false;
   let revision = 0;
   let draggingSlider = false;
-  let pending: Partial<Record<Knob, number>> = {};
+  let pending: PanelInput = {};
   let activeSlider: HTMLInputElement | null = null;
   let entryDrag: { x: number; y: number; moved: boolean } | null = null;
   let suppressClick = false;
@@ -177,7 +198,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     const input = $<HTMLInputElement>(key);
     input.value = String(value);
     input.style.setProperty("--fill", `${100 * (value - spec.min) / (spec.max - spec.min)}%`);
-    $(`${key}-value`).textContent = `${Math.round(value * (spec.unit === "%" ? 100 : 1))}${spec.unit}`;
+    $(`${key}-value`).textContent = formatKnob(key, value);
   }
   for (const key of Object.keys(knobs) as Knob[]) {
     const spec = knobs[key];
@@ -190,17 +211,22 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     input.setAttribute("aria-label", spec.label);
     const output = document.createElement("output"); output.id = `${key}-value`; output.htmlFor = key;
     row.append(label, input, output);
-    $(key === "dim" || key === "blur" ? "primary-knobs" : "extra-knobs").append(row);
+    $(`${spec.group}-knobs`).append(row);
     listen(input, "pointerdown", (event) => {
       draggingSlider = true; activeSlider = input;
       input.setPointerCapture((event as PointerEvent).pointerId);
     });
     listen(input, "input", () => {
       const value = Number(input.value);
-      pending[key] = value;
+      if (key === "transparency") pending.glassOpacity = 1 - value / 100;
+      else if (key === "positionX" || key === "positionY") {
+        pending.positionX = Number($<HTMLInputElement>("positionX").value);
+        pending.positionY = Number($<HTMLInputElement>("positionY").value);
+      }
+      else (pending as Record<string, unknown>)[key] = value;
       activeSlider = input;
       updateKnob(key, value);
-      if (data && data.config.enabled !== false) api.preview(previewCss(data.effective, pending));
+      if (data && data.config.enabled !== false) void api.preview({ ...pending }).catch(report);
     });
     listen(input, "change", commitPending);
     listen(input, "pointerup", () => { draggingSlider = false; return commitPending(); });
@@ -276,14 +302,36 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     $<HTMLButtonElement>("clear").hidden = !data.config.wallpaper;
     const wallpaper = data.effective.wallpaper[mode()];
     for (const key of Object.keys(knobs) as Knob[]) {
-      updateKnob(key, knobValue(wallpaper, key));
-      $<HTMLInputElement>(key).disabled = !wallpaper || data.config.enabled === false;
+      updateKnob(key, knobValue(data.effective, wallpaper, key));
+      $<HTMLInputElement>(key).disabled = (knobs[key].group === "wallpaper" || key === "brightness") && !wallpaper || data.config.enabled === false;
     }
     $<HTMLSelectElement>("fit").value = wallpaper?.fit ?? "cover";
+    $<HTMLSelectElement>("fit").disabled = !wallpaper || data.config.enabled === false;
+    $("theme-custom").hidden = !data.overrides?.theme;
+    $("theme-detail-custom").hidden = !data.overrides?.theme;
+    $("wallpaper-custom").hidden = !data.overrides?.wallpaper;
+    $<HTMLButtonElement>("reset-theme").disabled = !data.overrides?.theme || data.config.enabled === false;
+    $<HTMLButtonElement>("reset-tuning").disabled = !data.overrides?.wallpaper || data.config.enabled === false;
+    $("material-row").hidden = data.platform !== "win32";
+    $<HTMLSelectElement>("material").value = data.effective.glass.material;
+    $<HTMLSelectElement>("material").disabled = data.config.enabled === false;
+    const colors = data.effective.colors[mode()];
+    const accent = [colors.primary, colors["--color-primary"], data.effective.accent[mode()],
+      getComputedStyle(document.documentElement).getPropertyValue("--color-primary")]
+      .map(pickerColor).find((color) => color !== null) ?? null;
+    const accentInput = $<HTMLInputElement>("accent");
+    accentInput.value = accent ?? "#000000";
+    accentInput.classList.toggle("unknown", !accent);
+    accentInput.title = accent ? `当前强调色 ${accent}` : "当前颜色随主题；选择颜色即可覆盖";
+    $("accent-current").textContent = accent ? accent.toUpperCase() : "随主题";
+    accentInput.disabled = data.config.enabled === false;
+    $<HTMLButtonElement>("center-position").disabled = !wallpaper || data.config.enabled === false;
+    $("overlay-notice").hidden = !wallpaper || wallpaper.dim <= 0;
+    $<HTMLButtonElement>("clear-overlay").disabled = data.config.enabled === false;
     $("status").textContent = data.config.enabled === false ? "Canvas 当前已禁用，请在配置中启用" : "即点即用 · 所有窗口同步";
     position();
   }
-  function showMenu(anchor: HTMLElement, entryOnly: boolean) {
+  function showMenu(anchor: HTMLElement) {
     const wasOpen = !menu.hidden; menu.hidden = true;
     if (wasOpen) return;
     menu.replaceChildren();
@@ -296,10 +344,6 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
       $("status").textContent = prefs.hidden ? "入口已隐藏 · 快捷键或托盘仍可打开" : "入口已显示";
     });
     add("重置位置", () => { prefs.side = "right"; prefs.y = null; savePreferences(); position(); });
-    if (!entryOnly) {
-      menu.append(document.createElement("hr"));
-      add("独立外观窗口…", () => api.manage());
-    }
     menu.hidden = false;
     const rect = anchor.getBoundingClientRect();
     menu.style.left = `${Math.max(12, Math.min(innerWidth - menu.offsetWidth - 12, rect.right - menu.offsetWidth))}px`;
@@ -307,7 +351,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     menu.querySelector<HTMLButtonElement>("button")?.focus();
   }
   listen(entry, "click", () => { if (suppressClick) { suppressClick = false; return; } if (panel.hidden) return open(); dismiss(true); });
-  listen(entry, "contextmenu", (event) => { event.preventDefault(); showMenu(entry, true); });
+  listen(entry, "contextmenu", (event) => { event.preventDefault(); showMenu(entry); });
   listen(entry, "pointerdown", (event) => {
     const e = event as PointerEvent;
     if (e.button !== 0) return;
@@ -326,13 +370,22 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   });
   const endDrag = () => { if (entryDrag?.moved) { suppressClick = true; savePreferences(); } entryDrag = null; };
   listen(entry, "pointerup", endDrag); listen(entry, "pointercancel", endDrag);
-  listen($("options"), "click", () => showMenu($("options"), false));
+  listen($("options"), "click", () => showMenu($("options")));
   listen($("close"), "click", () => dismiss(true));
   listen($("pick"), "click", () => mutate(() => api.pickWallpaper(), "壁纸库已更新"));
   listen($("clear"), "click", () => mutate(() => api.apply({ wallpaper: null }), "已恢复主题壁纸"));
   listen($("fit"), "change", () => mutate(() => api.apply({ fit: $<HTMLSelectElement>("fit").value }), "已更新铺放方式"));
-  listen($("reset-tuning"), "click", () => mutate(() => api.apply({ fit: "cover", ...Object.fromEntries(Object.entries(knobs).map(([key, spec]) => [key, spec.fallback])) }), "已重置壁纸调节"));
-  listen($("details"), "toggle", position);
+  listen($("accent"), "change", () => {
+    const accent = $<HTMLInputElement>("accent").value;
+    return mutate(() => api.apply({ accent }), "已更新强调色");
+  });
+  listen($("material"), "change", () => mutate(() => api.apply({ material: $<HTMLSelectElement>("material").value }), "已更新原生材质"));
+  listen($("reset-theme"), "click", () => mutate(() => api.apply({ reset: "theme" }), "已重置主题调节"));
+  listen($("reset-tuning"), "click", () => mutate(() => api.apply({ reset: "wallpaper" }), "已重置壁纸调节"));
+  listen($("center-position"), "click", () => mutate(() => api.apply({ positionX: 50, positionY: 50 }), "图片已居中"));
+  listen($("clear-overlay"), "click", () => mutate(() => api.apply({ clearOverlay: true }), "已清除遮罩"));
+  listen($("theme-details"), "toggle", position);
+  listen($("wallpaper-details"), "toggle", position);
   listen(window, "resize", () => { menu.hidden = true; position(); });
   listen(window, "storage", (event) => { if ((event as StorageEvent).key === PREF_KEY) { readPreferences(); position(); } });
   listen(document, "pointerdown", (event) => {

@@ -61,7 +61,7 @@ zcode-canvas open                            # ZCode 运行中打开外观中心
 zcode-canvas restore                         # 还原官方 app.asar
 ```
 
-所有设置都存在 `~/.zcode-canvas/config.json` 里，直接编辑这个文件也可以，保存后立即生效。完整的键列表见 `zcode-canvas help`。
+所有设置都存在 `~/.zcode-canvas/config.json` 里，直接编辑这个文件也可以，保存后立即生效。`accent` 会覆盖主题强调色生成的 `primary`、`brand`、`ring` 和 `primary-foreground`；用户 `colors` 中显式指定的 token 优先。完整的键列表见 `zcode-canvas help`。
 
 ### 内置主题
 
@@ -79,7 +79,7 @@ zcode-canvas restore                         # 还原官方 app.asar
 
 ## Wallpaper Engine 本地导入
 
-只读取用户明确指定的本地项目目录和 `project.json`，不会联网、解包 pkg、执行 JS/exe 或修改 Wallpaper Engine 目录。`type: image` 仅导入其入口图片；`scene`、`video`、`web` 默认拒绝，只有显式加 `--preview` 才导入 `preview` 预览图。支持 png、jpg/jpeg、webp、avif、svg、gif——GIF 的动画会直接在 CSS 背景里播放，相当于轻量动态壁纸；但不会运行任何 Wallpaper Engine 内容。选中的文件会复制到 Canvas 自有的 `~/.zcode-canvas/imports/wallpaper/`，并仅更新 `wallpaper.image`，保留其它配置。
+只读取用户明确指定的本地项目目录和 `project.json`，不会联网、解包 pkg、执行 JS/exe 或修改 Wallpaper Engine 目录。`type: image` 仅导入其入口图片；`scene`、`video`、`web` 默认拒绝，只有显式加 `--preview` 才导入 `preview` 预览图。支持 png、jpg/jpeg、webp、avif、svg、gif——GIF 的动画会直接在 CSS 背景里播放，相当于轻量动态壁纸；但不会运行任何 Wallpaper Engine 内容。选中的文件会复制到 Canvas 自有的 `~/.zcode-canvas/imports/wallpaper/` 并应用；若个人配置尚未设置壁纸 `dim`，导入会设为 `0`，保留其它配置。既有配置不会自动迁移。
 
 ```sh
 zcode-canvas wallpaper import "D:\\SteamLibrary\\steamapps\\workshop\\content\\431960\\项目目录"
@@ -90,15 +90,15 @@ zcode-canvas wallpaper import ./my-project --preview
 
 ### 外观中心
 
-每个 ZCode 主窗口的侧边都有一个小巧的 **外观** 入口，点击即可展开页内浮层，背后的 IDE 就是实时预览。入口默认在右侧、状态栏与常见通知区域上方；可以直接拖到左右边缘，右键隐藏或重置位置。不检测或依赖宿主的通知 DOM。
+每个 ZCode 主窗口的侧边都有一个小巧的 **外观** 入口，点击即可展开页内面板，背后的 IDE 就是实时预览。外观中心只在主窗口内显示；托盘、应用菜单、窗口内快捷键 `Ctrl/Cmd+Alt+Shift+O` 和 `zcode-canvas open` 都会打开最近使用或当前聚焦的主窗口面板。没有可用主窗口时，`zcode-canvas open` 安全地打开 Canvas 配置目录。入口默认在右侧、状态栏与常见通知区域上方；可以直接拖到左右边缘，右键隐藏或重置位置。不检测或依赖宿主的通知 DOM。
 
-- **主题**：自动生成色卡，点击切换原生 / 内置 / 用户主题，保留个人壁纸覆盖。
-- **我的壁纸**：三列缩略图浏览 `~/.zcode-canvas/imports/wallpaper/` 中已导入的图片，点击直接使用。“添加图片”打开原生文件选择器，复制图片到 Canvas 自有库后应用；“恢复主题壁纸”清除个人覆盖。缩略图懒加载，GIF 冻结为静帧，实际 GIF 壁纸仍然播放。
-- **微调**：默认显示压暗、模糊，更多调节展开缩放、饱和度、亮度、对比度、灰度和铺放方式。拖动时本窗口即时预览，松手保存后所有主窗口同步；保存失败恢复已保存的效果。
+- **主题**：自动生成色卡，点击切换原生 / 内置 / 用户主题；用户的强调色、圆角、材质和壁纸等覆盖在切换主题时保留。
+- **我的壁纸**：三列缩略图浏览 `~/.zcode-canvas/imports/wallpaper/` 中已导入的图片，点击直接使用。“添加图片”打开由主窗口拥有的原生文件选择器，复制图片到 Canvas 自有库后应用；“恢复主题壁纸”清除壁纸覆盖。缩略图懒加载，GIF 冻结为静帧，实际 GIF 壁纸仍然播放。
+- **通用界面**：调整界面透明度、毛玻璃模糊和图片亮度；主题样式还可单独调整强调色、圆角和材质。
+- **壁纸微调**：调整铺放方式、X/Y 位置（含居中）、模糊、缩放、饱和度、亮度、对比度和灰度。拖动预览由主进程只读校验并生成完整 CSS，仅替换当前窗口样式，不写配置也不广播；过期预览会忽略。松手后才原子保存并同步所有主窗口；保存失败恢复已保存的效果。新导入的图片在未设置个人 `dim` 时默认不叠加旧遮罩（`dim: 0`），旧配置不会自动迁移；检测到旧遮罩时会在图片亮度旁提示，可直接清除。
+- **覆盖重置**：恢复主题默认会删除个人 `glass`、`accent` 和 `radius` 覆盖，保留壁纸选择及相关个人设置。切换主题时个人覆盖保留。
 
-再次点击入口、按 Esc、点击外部或关闭按钮收起，保留已应用的外观。浮层不推挤编辑器，也不改变代码布局。
-
-隐藏入口后，仍可通过 **托盘右键 → ZCode Canvas 外观中心**、应用菜单、窗口内快捷键 `Ctrl/Cmd+Alt+Shift+O` 或 `zcode-canvas open` 直接唤起浮层，再从面板菜单恢复入口。快捷键仅在 ZCode 主窗口生效，录制快捷键时会让位；托盘优先打开最近使用的主窗口。面板菜单也保留原来的独立外观窗口。批量导入等管理操作继续使用 CLI，不放进浮层。
+再次点击入口、按 Esc、点击外部或关闭按钮收起，保留已应用的外观。浮层不推挤编辑器，也不改变代码布局。快捷键仅在 ZCode 主窗口生效，录制快捷键时会让位；托盘优先打开最近使用的主窗口。批量导入等管理操作继续使用 CLI，不放进浮层。
 
 外观配置仍全局共享，走现有主进程校验、原子写入及热更新，不需要重启 ZCode。入口位置/隐藏仅是 UI 偏好，不改变主题配置。
 

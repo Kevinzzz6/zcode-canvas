@@ -74,6 +74,9 @@ export function importWallpaper(projectDirectory: string, home: string, preview 
 
   const config = readConfig(home);
   config.wallpaper = { ...(config.wallpaper ?? {}), image: destination };
+  // New imports use brightness alone; a deliberate legacy overlay remains intact.
+  if (config.wallpaper.dim === undefined && config.wallpaper.dark?.dim === undefined && config.wallpaper.light?.dim === undefined)
+    config.wallpaper.dim = 0;
   writeConfigAtomic(home, config);
   return { source, destination, config };
 }

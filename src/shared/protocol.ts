@@ -9,11 +9,11 @@ export const CHANNEL_GET = "zcode-canvas:get";
 export const CHANNEL_CSS = "zcode-canvas:css";
 export const CHANNEL_PANEL_GET = "zcode-canvas:panel-get";
 export const CHANNEL_PANEL_APPLY = "zcode-canvas:panel-apply";
+export const CHANNEL_PANEL_PREVIEW = "zcode-canvas:panel-preview";
 export const CHANNEL_PANEL_PICK_WALLPAPER = "zcode-canvas:panel-pick-wallpaper";
 export const CHANNEL_PANEL_SELECT_WALLPAPER = "zcode-canvas:panel-select-wallpaper";
 export const CHANNEL_PANEL_OPEN = "zcode-canvas:panel-open";
 export const CHANNEL_PANEL_CHANGED = "zcode-canvas:panel-changed";
-export const CHANNEL_PANEL_MANAGE = "zcode-canvas:panel-manage";
 export const CHANNEL_PANEL_LOG = "zcode-canvas:panel-log";
 
 /**

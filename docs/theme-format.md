@@ -93,8 +93,8 @@ my-theme/
     "fit": "cover",             // cover | contain | fill | tile | center
     "position": "center",       // CSS background-position，也是缩放的锚点
     "blur": 0,                  // 壁纸模糊半径，px
-    "dim": 0.35,                // 遮罩强度 0~1
-    "overlay": null,            // 遮罩颜色，默认暗色模式为黑、亮色模式为白
+    "dim": 0.35,                // 遗留遮罩强度 0~1；新导入图片无个人设置时会使用 0
+    "overlay": null,            // 可选遮罩颜色；省略时依模式使用默认颜色
     "scale": 1,                 // 缩放倍数 0.1~4，以 position 为锚点，1 = 原样
     "saturate": 1,              // 饱和度 0~4，1 = 不调整
     "brightness": 1,            // 亮度 0~2，1 = 不调整
@@ -126,10 +126,14 @@ my-theme/
 
 最终外观由两层叠成：先是主题，再是用户的 `~/.zcode-canvas/config.json`（`zcode-canvas set` 写的就是它）。
 
-- 用户配置**逐字段**覆盖主题，例如只设 `glass.blur` 不会影响主题的 `glass.opacity`。
+- 用户配置**逐字段**覆盖主题，例如只设 `glass.blur` 不会影响主题的 `glass.opacity`。外观中心“恢复主题默认”会删除个人 `glass`、`accent`、`radius` 覆盖并保留壁纸选择。
 - 写 `null` 表示去掉主题设置的这一项，例如 `"wallpaper": null`、`"radius": null`、`"accent": null`。
 - `wallpaper` 和 `vars` 都遵循同一条"按模式细化"规则：顶层字段对两种模式生效，`dark` / `light` 里的字段只对该模式生效，并覆盖顶层；某个模式写 `null` 表示只在该模式下去掉。
-- `accent` 和 `colors` 同时出现时，`colors` 里显式写的 token 优先，`accent` 只补空缺。
+- 主题 `accent` 和主题 `colors` 同时出现时，`colors` 里显式写的 token 优先，`accent` 只补空缺。用户 `config.accent` 会覆盖主题提供的 `primary`、`brand`、`ring` 和 `primary-foreground`（包括主题 `colors` 中的显式值）；用户 `config.colors` 中显式写的 token 仍优先。
+
+外观中心拖动控件时，主进程只读校验请求并生成完整 CSS，当前窗口即时替换预览样式；预览不会写配置或广播，较早返回的预览会忽略。松手后才原子保存并同步其他主窗口。
+
+新导入的壁纸（包括 CLI 导入）在个人配置没有设置顶层或按模式的 `dim` 时会写入 `dim: 0`，避免继承主题遮罩。既有配置不会自动迁移；旧版非零遮罩会在外观中心图片亮度控制旁提示并可清除。`dim` 是兼容保留的遮罩强度，不代表图片亮度。
 
 ## 常用 token
 

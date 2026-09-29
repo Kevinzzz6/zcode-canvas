@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { previewCss } from "../src/runtime/overlay-preview.ts";
-import { resolveLook, type ResolvedLook } from "../src/shared/look.ts";
+import { createPreviewController } from "../src/runtime/preview-controller.ts";
+import { formatKnob, positionValue } from "../src/runtime/overlay-preview.ts";
 import { isMainWindowUrl } from "../src/shared/window.ts";
 
 const mainUrl = "file:///C:/ZCode/resources/app/out/renderer/index.html";
@@ -18,47 +18,95 @@ test("only the main file renderer page gets the injected UI", () => {
   assert.equal(isMainWindowUrl("not a URL"), false);
 });
 
-function wallpaperLook(): ResolvedLook {
-  return resolveLook({ wallpaper: {
-    image: "wallpaper.png",
-    dark: { image: "dark.png", overlay: "#123456", dim: 0.3 },
-    light: { image: "light.png", overlay: "#abcdef", dim: 0.2 },
-  } }, null, "C:/canvas");
+test("position percentages and brightness ratios use their respective display scales", () => {
+  assert.equal(formatKnob("positionX", 25), "25%");
+  assert.equal(formatKnob("positionY", 75), "75%");
+  assert.equal(formatKnob("brightness", .61), "61%");
+  assert.equal(formatKnob("transparency", 55), "55%");
+  assert.equal(formatKnob("glassBlur", 18), "18px");
+});
+
+test("position controls preserve CSS keyword axis semantics", () => {
+  for (const [value, x, y] of [["top", 50, 0], ["right", 100, 50], ["top left", 0, 0], ["center bottom", 50, 100], ["25% 75%", 25, 75]] as const) {
+    assert.equal(positionValue(value, 0), x);
+    assert.equal(positionValue(value, 1), y);
+  }
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
 }
 
-test("preview rules are scoped to each mode and keep a zero-dim layer", () => {
-  const css = previewCss(wallpaperLook(), { dim: 0, blur: 11 });
-  assert.match(css, /html:root\.dark body::before\{[^}]*blur\(11px\)/);
-  assert.match(css, /html:root:not\(\.dark\) body::before\{[^}]*blur\(11px\)/);
-  assert.equal((css.match(/body::after\{/g) ?? []).length, 2);
-  assert.equal((css.match(/ 0%,transparent/g) ?? []).length, 2);
-  assert.match(css, /pointer-events:none/);
+test("whole-sheet preview restores the newest persisted CSS from any window", async () => {
+  const sheets: string[] = [];
+  const controller = createPreviewController(async () => ({ css: "preview without blur" }), (css) => sheets.push(css));
+  controller.setBase("persisted blur 18");
+  await controller.preview({ glassBlur: 0 });
+  controller.setBase("another window changed the theme");
+  assert.equal(sheets.at(-1), "preview without blur");
+  controller.clear();
+  assert.equal(sheets.at(-1), "another window changed the theme");
 });
 
-test("preview clamps numbers, replaces nonfinite values, and leaves the resolved look untouched", () => {
-  const look = wallpaperLook();
-  const before = structuredClone(look);
-  const css = previewCss(look, { dim: 100, blur: -20, scale: Infinity, saturate: NaN, brightness: -1, contrast: 300, grayscale: -9 });
-  assert.match(css, /blur\(0px\) saturate\(1\) brightness\(0\) contrast\(2\) grayscale\(0\)/);
-  assert.match(css, /transform:scale\(1\)/);
-  assert.match(css, / 100%,transparent/);
-  assert.doesNotMatch(css, /NaN|Infinity|blur\(-20px\)|contrast\(300\)/);
-  assert.deepEqual(look, before);
+test("coalesces slider requests and never paints an outdated response", async () => {
+  const responses = [deferred<{ css: string }>(), deferred<{ css: string }>()];
+  const inputs: unknown[] = [];
+  const sheets: string[] = [];
+  const controller = createPreviewController((input) => { inputs.push(input); return responses[inputs.length - 1]!.promise; }, (css) => sheets.push(css));
+  controller.setBase("base");
+  const first = controller.preview({ glassOpacity: .5 });
+  const superseded = controller.preview({ glassOpacity: .6 });
+  const latest = controller.preview({ glassOpacity: .7 });
+  await superseded;
+  assert.equal(inputs.length, 1);
+  responses[0]!.resolve({ css: "outdated" });
+  await first;
+  assert.deepEqual(inputs, [{ glassOpacity: .5 }, { glassOpacity: .7 }]);
+  assert.deepEqual(sheets, ["base"]);
+  responses[1]!.resolve({ css: "latest" });
+  await latest;
+  assert.equal(sheets.at(-1), "latest");
 });
 
-test("untrusted overlay values cannot break out of generated preview declarations", () => {
-  const look = wallpaperLook();
-  look.wallpaper.dark!.overlay = "red;}body{display:none";
-  const css = previewCss(look, {});
-  assert.doesNotMatch(css, /display:none|red;\}/);
-  assert.match(css, /html:root\.dark body::after\{[^}]*#000000/);
+test("clear invalidates late previews and cancels queued work after a commit", async () => {
+  const response = deferred<{ css: string }>();
+  const sheets: string[] = [];
+  let calls = 0;
+  const controller = createPreviewController(() => { calls++; return response.promise; }, (css) => sheets.push(css));
+  controller.setBase("base");
+  const first = controller.preview({ brightness: .5 });
+  const queued = controller.preview({ brightness: .6 });
+  controller.setBase("committed brightness .6");
+  controller.clear();
+  response.resolve({ css: "late brightness .5" });
+  await Promise.all([first, queued]);
+  assert.equal(calls, 1);
+  assert.equal(sheets.at(-1), "committed brightness .6");
+  assert.ok(!sheets.includes("late brightness .5"));
 });
 
-test("preview produces rules only for wallpaper modes that exist", () => {
-  const look = wallpaperLook();
-  look.wallpaper.light = null;
-  const css = previewCss(look, { dim: 0.4 });
-  assert.match(css, /html:root\.dark body::before/);
-  assert.doesNotMatch(css, /html:root:not\(\.dark\)/);
-  assert.equal(previewCss(resolveLook({}, null, "C:/canvas"), { dim: 0.4 }), "\n");
+test("failed or malformed previews restore CSS and allow subsequent requests", async () => {
+  const sheets: string[] = [];
+  let calls = 0;
+  const controller = createPreviewController(async () => {
+    calls++;
+    if (calls === 1) throw new Error("IPC failed");
+    if (calls === 2) return {} as { css: string };
+    return { css: "recovered" };
+  }, (css) => sheets.push(css));
+  controller.setBase("persisted");
+  await assert.rejects(controller.preview({ brightness: 1.1 }), /IPC failed/);
+  assert.equal(sheets.at(-1), "persisted");
+  await assert.rejects(controller.preview({ brightness: 1.2 }), /invalid preview/);
+  assert.equal(sheets.at(-1), "persisted");
+  await controller.preview({ brightness: 1.3 });
+  assert.equal(sheets.at(-1), "recovered");
+});
+
+test("failed restore rejects caller without an unhandled drain rejection", async () => {
+  const controller = createPreviewController(async () => { throw new Error("IPC failed"); }, () => { throw new Error("style unavailable"); });
+  await assert.rejects(controller.preview({ glassBlur: 0 }), /style unavailable/);
 });

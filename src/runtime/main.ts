@@ -1,11 +1,11 @@
 // Runs inside ZCode's Electron main process, loaded by the bootstrap before ZCode's own entry.
 // Anything thrown here must never reach ZCode: every entry point is guarded.
-import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, Tray, type IpcMainEvent, type OpenDialogOptions, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, shell, Tray, type IpcMainEvent, type OpenDialogOptions, type WebContents } from "electron";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, type Material } from "../shared/look.ts";
-import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_MANAGE, CHANNEL_PANEL_LOG, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
+import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
@@ -50,8 +50,6 @@ function compute(previous: State): State {
 let state = compute({ css: "", material: OFFICIAL_MATERIAL });
 const renderers = new Set<WebContents>();
 
-let panel: BrowserWindow | null = null;
-
 /** Set while ZCode's shortcut recorder is armed; the panel shortcut stands down so the user can
  *  bind the combination to a ZCode command (and no panel pops up mid-recording). */
 let shortcutRecordingActive = false;
@@ -73,20 +71,6 @@ function observeShortcutRecording() {
   ipcMain.on = wrapped;
 }
 
-function panelPath(file: string): string {
-  return join(__dirname, "panel", file);
-}
-
-function panelPreloadPath(): string {
-  return join(__dirname, "panel-preload.cjs");
-}
-function openManagementPanel() {
-  if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
-  panel = new BrowserWindow({ width: 640, height: 700, minWidth: 520, minHeight: 480, title: "ZCode Canvas 外观中心", webPreferences: { preload: panelPreloadPath(), contextIsolation: true, nodeIntegration: false, sandbox: true } });
-  void panel.loadFile(panelPath("panel.html")).catch((error) => log(`panel load failed: ${String(error)}`));
-  panel.on("closed", () => { panel = null; });
-}
-
 /** Prefer the focused main window; the tray reopens the last active one even with its tab hidden. */
 function openPanel() {
   try {
@@ -99,7 +83,7 @@ function openPanel() {
       target.show();
       target.focus();
       target.webContents.send(CHANNEL_PANEL_OPEN);
-    } else openManagementPanel();
+    } else void shell.openPath(home).then((error) => { if (error) log(`configuration folder open failed: ${error}`); }).catch((error) => log(`configuration folder open failed: ${String(error)}`));
   } catch (error) { log(`panel open failed: ${String(error)}`); }
 }
 
@@ -187,13 +171,8 @@ function installInWindowShortcut() {
   });
 }
 
-/** Only the owned standalone panel or a verified top-level main page can use panel IPC. */
-const isPanelSender = (event: unknown): boolean => {
-  const sender = (event as { sender?: unknown } | null | undefined)?.sender;
-  const frame = (event as IpcMainEvent | undefined)?.senderFrame;
-  return (!!panel && !panel.isDestroyed() && sender === panel.webContents && frame === panel.webContents.mainFrame) ||
-    senderIsMainWindow(event as IpcMainEvent);
-};
+/** Only a verified top-level main page can use appearance IPC. */
+const isPanelSender = (event: unknown): boolean => senderIsMainWindow(event as IpcMainEvent);
 
 /** The main window's page is the only legitimate source of a GET — its session preload sends one at
  *  document start. The same conditions the preload checks on itself, enforced on the main side. */
@@ -290,14 +269,6 @@ try {
   });
 
   registerPanelHandlers({ home, ipc: ipcMain, log, pickWallpaperFile, reload, isPanelSender });
-  try {
-    ipcMain.handle(CHANNEL_PANEL_MANAGE, (event) => {
-      try {
-        if (!isPanelSender(event)) return;
-        openManagementPanel();
-      } catch (error) { log(`management panel failed: ${String(error)}`); }
-    });
-  } catch (error) { log(`management channel unavailable: ${String(error)}`); }
   try {
     ipcMain.on(CHANNEL_PANEL_LOG, (event, message: unknown) => {
       try {

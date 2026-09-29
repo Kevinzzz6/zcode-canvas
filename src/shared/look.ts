@@ -340,6 +340,19 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
     if (layer.startup) startup = { ...startup, ...layer.startup };
   }
 
+  // A personal accent overrides the theme's primary colors, including themes which spell out
+  // those tokens explicitly. Explicit *user* color tokens remain more specific than the accent.
+  const personalAccent = perMode(config.accent, isString);
+  for (const mode of MODES) {
+    if (!personalAccent[mode]) continue;
+    const own = config.colors?.[mode] ?? {};
+    for (const token of ["primary", "brand", "ring", "primary-foreground"]) {
+      for (const key of [token, `--color-${token}`]) {
+        if (!(key in own)) delete colors[mode][key];
+      }
+    }
+  }
+
   return {
     colors,
     accent,

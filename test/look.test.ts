@@ -253,6 +253,31 @@ test("colors set explicitly win over the tokens derived from accent", () => {
   assert.match(css, /html:root\.dark \{[^}]*--color-primary-foreground: #000000;/);
 });
 
+test("personal accent overrides theme primary tokens but preserves explicit user colors", () => {
+  const preset = theme({ name: "Explicit palette", colors: {
+    dark: { primary: "#fff500", brand: "#fff500", ring: "#fff500", "primary-foreground": "#000000" },
+    light: { "--color-primary": "#101110", brand: "#6b5d00" },
+  } });
+  const before = structuredClone(preset);
+  const css = buildCss(resolveLook({ accent: "#204080" }, preset, "/home")).css;
+  assert.equal((css.match(/--color-primary: #204080/g) ?? []).length, 2);
+  assert.equal((css.match(/--color-brand: #204080/g) ?? []).length, 2);
+  assert.equal((css.match(/--color-primary-foreground: #ffffff/g) ?? []).length, 2);
+  const explicit = buildCss(resolveLook({ accent: "#204080", colors: { light: { primary: "#ff0000" } } }, preset, "/home")).css;
+  assert.match(explicit, /html:root:not\(\.dark\) \{[^}]*--color-primary: #ff0000/);
+  const restored = buildCss(resolveLook({}, preset, "/home")).css;
+  assert.match(restored, /--color-primary: #fff500/);
+  assert.match(restored, /--color-primary: #101110/);
+  assert.deepEqual(preset, before, "never rewrite the original theme");
+});
+
+test("a per-mode personal accent leaves the other mode's theme palette unchanged", () => {
+  const preset = theme({ name: "Two modes", colors: { dark: { primary: "#fff500" }, light: { primary: "#101110" } } });
+  const css = buildCss(resolveLook({ accent: { dark: "#204080" } }, preset, "/home")).css;
+  assert.match(css, /html:root\.dark \{[^}]*--color-primary: #204080/);
+  assert.match(css, /html:root:not\(\.dark\) \{[^}]*--color-primary: #101110/);
+});
+
 test("radius scales the Tailwind radius variables; 0 is square and 1 emits nothing", () => {
   assert.match(buildCss(resolveLook({ radius: 0 }, null, "/home")).css, /html:root \{\n {2}--radius-xs: 0;[\s\S]*--radius-3xl: 0;/);
   assert.match(buildCss(resolveLook({ radius: 0.5 }, null, "/home")).css, /--radius-xl: 0\.375rem;/);

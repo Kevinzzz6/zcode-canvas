@@ -1,36 +1,52 @@
 import type { ResolvedLook, ResolvedWallpaper } from "../shared/look.ts";
 
-export type Knob = "dim" | "blur" | "scale" | "saturate" | "brightness" | "contrast" | "grayscale";
-export const knobs: Record<Knob, { label: string; min: number; max: number; step: number; unit: string; fallback: number }> = {
-  dim: { label: "压暗", min: 0, max: 1, step: .01, unit: "%", fallback: .35 },
-  blur: { label: "模糊", min: 0, max: 200, step: 1, unit: "px", fallback: 0 },
-  scale: { label: "缩放", min: .1, max: 4, step: .01, unit: "%", fallback: 1 },
-  saturate: { label: "饱和度", min: 0, max: 4, step: .01, unit: "%", fallback: 1 },
-  brightness: { label: "亮度", min: 0, max: 2, step: .01, unit: "%", fallback: 1 },
-  contrast: { label: "对比度", min: 0, max: 2, step: .01, unit: "%", fallback: 1 },
-  grayscale: { label: "灰度", min: 0, max: 1, step: .01, unit: "%", fallback: 0 },
-};
+/** UI control metadata. API names and ranges are validated again by the main process. */
+export const knobs = {
+  transparency: { label: "界面透明", min: 0, max: 100, step: 1, unit: "%", fallback: 0, group: "primary" },
+  glassBlur: { label: "界面模糊", min: 0, max: 100, step: 1, unit: "px", fallback: 0, group: "primary" },
+  brightness: { label: "图片亮度", min: 0, max: 2, step: .01, unit: "%", fallback: 1, group: "primary" },
+  blur: { label: "图片模糊", min: 0, max: 200, step: 1, unit: "px", fallback: 0, group: "wallpaper" },
+  saturate: { label: "饱和度", min: 0, max: 4, step: .01, unit: "%", fallback: 1, group: "wallpaper" },
+  contrast: { label: "对比度", min: 0, max: 2, step: .01, unit: "%", fallback: 1, group: "wallpaper" },
+  grayscale: { label: "灰度", min: 0, max: 1, step: .01, unit: "%", fallback: 0, group: "wallpaper" },
+  scale: { label: "缩放", min: .1, max: 4, step: .01, unit: "%", fallback: 1, group: "wallpaper" },
+  positionX: { label: "水平位置", min: 0, max: 100, step: 1, unit: "%", fallback: 50, group: "wallpaper" },
+  positionY: { label: "垂直位置", min: 0, max: 100, step: 1, unit: "%", fallback: 50, group: "wallpaper" },
+  radius: { label: "圆角", min: 0, max: 4, step: .05, unit: "×", fallback: 1, group: "theme" },
+} as const;
 
-/** Only Canvas's existing wallpaper layers are touched; no IDE node lookup or mutation. */
-export function previewCss(look: ResolvedLook, patch: Partial<Record<Knob, number>>): string {
-  return (["dark", "light"] as const).map((mode) => {
-    const base = look.wallpaper[mode];
-    if (!base) return "";
-    const w = { ...base };
-    for (const key of Object.keys(knobs) as Knob[]) {
-      const value = patch[key] ?? w[key];
-      const spec = knobs[key];
-      w[key] = Number.isFinite(value) ? Math.min(spec.max, Math.max(spec.min, value)) : spec.fallback;
-    }
-    const root = mode === "dark" ? "html:root.dark" : "html:root:not(.dark)";
-    const fallback = mode === "dark" ? "#000000" : "#ffffff";
-    // CSS.supports rejects declaration breakouts; never interpolate unvalidated theme strings.
-    const overlay = w.overlay && typeof CSS !== "undefined" && CSS.supports("color", w.overlay) ? w.overlay : fallback;
-    return `${root} body::before{inset:${-w.blur * 2}px!important;transform:scale(${w.scale})!important;filter:blur(${w.blur}px) saturate(${w.saturate}) brightness(${w.brightness}) contrast(${w.contrast}) grayscale(${w.grayscale})!important}
-${root} body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:color-mix(in srgb,${overlay} ${w.dim * 100}%,transparent)!important}`;
-  }).join("\n");
+export type Knob = keyof typeof knobs;
+
+export function formatKnob(key: Knob, value: number): string {
+  if (key === "transparency" || key === "positionX" || key === "positionY") return `${Math.round(value)}%`;
+  if (knobs[key].unit === "%") return `${Math.round(value * 100)}%`;
+  if (key === "radius") return `${Number(value.toFixed(2))}×`;
+  return `${Math.round(value)}${knobs[key].unit}`;
 }
 
-export function knobValue(wallpaper: ResolvedWallpaper | null, key: Knob): number {
+export function positionValue(position: string | undefined, axis: 0 | 1): number {
+  if (!position || position === "center") return 50;
+  const values = position.trim().split(/\s+/);
+  const vertical = (part: string) => part === "top" || part === "bottom";
+  const reordered = values.length === 2 && vertical(values[0] ?? "") && !vertical(values[1] ?? "")
+    ? [values[1], values[0]] : values;
+  let part = reordered[axis];
+  if (values.length === 1) {
+    if (vertical(values[0] ?? "")) part = axis === 0 ? "center" : values[0];
+    else if (axis === 1) part = "center";
+  }
+  if (part === "center" || part === undefined) return 50;
+  if (part === "left" || part === "top") return 0;
+  if (part === "right" || part === "bottom") return 100;
+  const match = /^(\d+(?:\.\d+)?)%$/.exec(part ?? "");
+  return match ? Math.max(0, Math.min(100, Number(match[1]))) : 50;
+}
+
+export function knobValue(look: ResolvedLook, wallpaper: ResolvedWallpaper | null, key: Knob): number {
+  if (key === "transparency") return Math.round((1 - look.glass.opacity) * 100);
+  if (key === "glassBlur") return look.glass.blur;
+  if (key === "radius") return look.radius ?? knobs.radius.fallback;
+  if (key === "positionX") return positionValue(wallpaper?.position, 0);
+  if (key === "positionY") return positionValue(wallpaper?.position, 1);
   return wallpaper?.[key] ?? knobs[key].fallback;
 }

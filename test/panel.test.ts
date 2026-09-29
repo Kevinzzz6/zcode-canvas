@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadLook, readConfig, writeConfigAtomic, type CanvasConfig } from "../src/shared/look.ts";
-import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER } from "../src/shared/protocol.ts";
+import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SELECT_WALLPAPER } from "../src/shared/protocol.ts";
 import {
   applyPanelInput,
   importWallpaperFile,
@@ -182,6 +182,75 @@ test("fit / blur / dim update in place and keep wallpaper.image", () => {
   }
 });
 
+test("personal controls are shared across themes and defaults omit personal overrides", () => {
+  const home = makeHome();
+  const base: CanvasConfig = { theme: "mine", wallpaper: { image: "/w/pic.jpg", blur: 3 } };
+  const own = applyPanelInput(base, { glassOpacity: 0.52, glassBlur: 24, material: "mica", accent: "#A1b2C3", radius: 2, positionX: 20, positionY: 65 }, home);
+  assert.deepEqual(own.glass, { opacity: 0.52, blur: 24, material: "mica" });
+  assert.equal(own.accent, "#A1b2C3");
+  assert.equal(own.radius, 2);
+  assert.equal(own.wallpaper?.position, "20% 65%");
+  const switched = applyPanelInput(own, { theme: "builtinwp" }, home);
+  assert.equal(switched.accent, own.accent);
+  assert.deepEqual(switched.glass, own.glass);
+  writeConfigAtomic(home, switched);
+  const data = readPanelData(home);
+  assert.equal(data.effective.glass.opacity, 0.52);
+  assert.equal(data.defaults.glass.opacity, 1);
+  assert.equal(data.effective.radius, 2);
+  assert.equal(data.defaults.radius, null);
+  assert.deepEqual(data.overrides, { theme: true, wallpaper: true });
+  assert.equal(data.platform, process.platform);
+});
+
+test("reset removes only controlled tuning and preserves images, theme and unrelated config", () => {
+  const home = makeHome();
+  const before: CanvasConfig = {
+    theme: "mine", enabled: false, accent: "#123456", radius: 3, glass: { opacity: 0.5 },
+    startup: { animation: "fade" },
+    wallpaper: { image: "/w/pic.jpg", dim: 0.6, blur: 10, dark: { image: "/w/dark.jpg", dim: 0.9, fit: "tile" }, light: null },
+  };
+  const themeReset = applyPanelInput(before, { reset: "theme" }, home);
+  assert.equal(themeReset.accent, undefined);
+  assert.equal(themeReset.radius, undefined);
+  assert.equal(themeReset.glass, undefined);
+  assert.deepEqual(themeReset.wallpaper, before.wallpaper);
+  const wallpaperReset = applyPanelInput(before, { reset: "wallpaper" }, home);
+  assert.deepEqual(wallpaperReset.wallpaper, { image: "/w/pic.jpg", dark: { image: "/w/dark.jpg" }, light: null });
+  assert.equal(wallpaperReset.theme, "mine");
+  assert.deepEqual(wallpaperReset.startup, { animation: "fade" });
+  assert.equal(wallpaperReset.enabled, false);
+  assert.deepEqual(before.wallpaper?.dark, { image: "/w/dark.jpg", dim: 0.9, fit: "tile" });
+  writeConfigAtomic(home, wallpaperReset);
+  assert.equal(readPanelData(home).overrides.wallpaper, false, "selected image alone is not a tuning badge");
+});
+
+test("global wallpaper changes clear mode shadows without mutating the original config", () => {
+  const home = makeHome();
+  const before: CanvasConfig = { wallpaper: { image: "/w/shared.jpg", dark: { image: "/w/dark.jpg", blur: 31, fit: "tile", dim: 0.8, position: "top right" }, light: null } };
+  const after = applyPanelInput(before, { fit: "contain", blur: 6, positionY: 40, clearOverlay: true }, home);
+  assert.deepEqual(after.wallpaper?.dark, { image: "/w/dark.jpg" });
+  assert.equal(after.wallpaper?.light, null);
+  assert.equal(after.wallpaper?.position, "100% 40%");
+  assert.equal(after.wallpaper?.dim, 0);
+  assert.deepEqual(before.wallpaper?.dark, { image: "/w/dark.jpg", blur: 31, fit: "tile", dim: 0.8, position: "top right" });
+  assert.throws(() => applyPanelInput(before, { fit: "contain", blur: 999 }, home), /invalid wallpaper blur/);
+  assert.equal(before.wallpaper?.dark?.fit, "tile", "failed validation must leave the original untouched");
+});
+
+test("invalid personal controls and unknown request keys are refused", () => {
+  const home = makeHome();
+  const base: CanvasConfig = { theme: "mine" };
+  const invalid = [
+    { glassOpacity: -0.1 }, { glassOpacity: 1.1 }, { glassOpacity: "0.5" }, { glassBlur: 101 },
+    { material: "glass" }, { accent: "red" }, { accent: "#abcd" }, { radius: 5 },
+    { positionX: -1 }, { positionY: 101 }, { reset: "all" }, { clearOverlay: false },
+    { image: "C:/private/file.png" },
+  ];
+  for (const value of invalid) assert.throws(() => applyPanelInput(base, value, home), Error, JSON.stringify(value));
+  assert.deepEqual(base, { theme: "mine" });
+});
+
 test("unknown themes and renderer-supplied wallpaper paths are rejected", () => {
   const home = makeHome();
   const config: CanvasConfig = { theme: null };
@@ -318,6 +387,27 @@ test("the pick handler stores the chosen file as wallpaper.image and keeps the t
   assert.equal(canceling.reloads.length, 0);
 });
 
+test("new image selection clears inherited dim while explicit legacy dim stays intact", async () => {
+  const home = makeHome();
+  const store = join(home, "imports", "wallpaper");
+  mkdirSync(store, { recursive: true });
+  writeFileSync(join(store, "new.png"), "new");
+  const { listeners } = harness(home, async () => null);
+  writeConfigAtomic(home, { theme: "builtinwp" });
+  await listeners.get(CHANNEL_PANEL_SELECT_WALLPAPER)!(undefined, "new.png");
+  assert.equal(readConfig(home).wallpaper?.dim, 0);
+  assert.equal(readPanelData(home).effective.wallpaper.dark?.dim, 0);
+
+  writeConfigAtomic(home, { theme: "builtinwp", wallpaper: { dim: 0.7 } });
+  await listeners.get(CHANNEL_PANEL_SELECT_WALLPAPER)!(undefined, "new.png");
+  assert.equal(readConfig(home).wallpaper?.dim, 0.7);
+
+  writeConfigAtomic(home, { theme: "builtinwp", wallpaper: { dark: { dim: 0.9 } } });
+  await listeners.get(CHANNEL_PANEL_SELECT_WALLPAPER)!(undefined, "new.png");
+  assert.equal(readConfig(home).wallpaper?.dim, undefined);
+  assert.equal(readConfig(home).wallpaper?.dark?.dim, 0.9);
+});
+
 test("selecting a stored wallpaper preserves theme and tuning while refusing paths and symlinks", async (t: TestContext) => {
   const home = makeHome();
   const store = join(home, "imports", "wallpaper");
@@ -359,7 +449,7 @@ test("requests that do not come from the panel window are refused and change not
   const home = makeHome();
   withWallpaperOverride(home);
   const stranger = harness(home, async () => null, () => false);
-  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER]) {
+  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER]) {
     await assert.rejects(
       async () => {
         await stranger.listeners.get(channel)!({ sender: { id: 1 } });
@@ -371,6 +461,21 @@ test("requests that do not come from the panel window are refused and change not
   assert.ok(stranger.logged.length >= 3, "every refusal is logged");
   assert.equal(stranger.reloads.length, 0);
   assert.equal(readConfig(home).theme, "mine"); // nothing was executed
+});
+
+test("preview validates and resolves exact CSS without writing or reloading", async () => {
+  const home = makeHome();
+  writeConfigAtomic(home, { theme: "mine", wallpaper: { image: "/w/pic.jpg" } });
+  const before = readFileSync(join(home, "config.json"), "utf8");
+  const { listeners, reloads } = harness(home, async () => null);
+  const preview = await listeners.get(CHANNEL_PANEL_PREVIEW)!(undefined, { accent: "#aabbcc", glassOpacity: 0.5 }) as { css: string };
+  assert.match(preview.css, /#aabbcc/i);
+  assert.equal(readFileSync(join(home, "config.json"), "utf8"), before);
+  assert.equal(reloads.length, 0);
+  await assert.rejects(async () => listeners.get(CHANNEL_PANEL_PREVIEW)!(undefined, { accent: "url(file:\/\/\/secret)" }), /invalid accent/);
+  assert.equal(readFileSync(join(home, "config.json"), "utf8"), before);
+  writeConfigAtomic(home, { enabled: false, theme: "mine" });
+  assert.deepEqual(await listeners.get(CHANNEL_PANEL_PREVIEW)!(undefined, { radius: 2 }), { css: "" });
 });
 
 test("the apply handler writes the merged config to disk and triggers a reload", async () => {
@@ -422,9 +527,9 @@ test("a channel that cannot be registered is logged and skipped; the rest still 
   assert.equal(readConfig(home).theme, "mine");
 });
 
-test("the panel window stays context-isolated, node-free and sandboxed", () => {
+test("appearance IPC is restricted to the top-level main window; no standalone panel is created", () => {
   const source = readFileSync(fileURLToPath(new URL("../src/runtime/main.ts", import.meta.url)), "utf8");
-  assert.match(source, /contextIsolation:\s*true/);
-  assert.match(source, /nodeIntegration:\s*false/);
-  assert.match(source, /sandbox:\s*true/);
+  assert.match(source, /const isPanelSender = \(event: unknown\): boolean => senderIsMainWindow/);
+  assert.match(source, /event\.senderFrame === event\.sender\.mainFrame && isMainWindowUrl/);
+  assert.doesNotMatch(source, /new BrowserWindow\(/);
 });
