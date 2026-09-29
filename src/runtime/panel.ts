@@ -2,8 +2,8 @@
 // ZCode: main.ts only wires the IPC channels, the native file dialog and the panel window.
 //
 // The panel exposes exactly two concepts. `theme` selects a whole look; a wallpaper picked with the
-// native dialog overrides only the theme's wallpaper. Clearing the wallpaper (config.wallpaper =
-// null) lets the theme's own wallpaper show again; clearing the theme never touches the wallpaper.
+// native dialog overrides only the theme's wallpaper. Clearing the wallpaper removes the override,
+// so the theme's own wallpaper shows again; clearing the theme never touches the wallpaper.
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, resolve, sep } from "node:path";
@@ -40,10 +40,12 @@ export function readPanelData(home: string): PanelData {
       ? wallpaperDisplayName(basename(config.wallpaper.image))
       : null;
   const active = config.theme ? themes.find((entry) => entry.id === config.theme) : undefined;
+  // A hand-edited `wallpaper: null` really does remove the theme's wallpaper; don't claim it shows.
+  const fromTheme = !file && config.wallpaper !== null && active !== undefined && themeHasWallpaper(active.manifest);
   return {
     config,
     themes: themes.map(({ id, manifest, builtin }) => ({ id, name: manifest.name, builtin })),
-    wallpaper: { file, fromTheme: !file && active !== undefined && themeHasWallpaper(active.manifest) },
+    wallpaper: { file, fromTheme },
   };
 }
 
@@ -85,7 +87,9 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
     else throw new Error("unknown theme");
   }
   if (input.wallpaper !== undefined) {
-    if (input.wallpaper === null) next.wallpaper = null;
+    // Clearing removes the override. Writing `null` instead would mean "no wallpaper at all": in
+    // resolveLook an explicit null in the config also removes the theme's own wallpaper.
+    if (input.wallpaper === null) delete next.wallpaper;
     else throw new Error("wallpaper must be picked with the file dialog");
   }
   const request = input as Record<string, unknown>;

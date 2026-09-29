@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
-import { readConfig, writeConfigAtomic, type CanvasConfig } from "../src/shared/look.ts";
+import { loadLook, readConfig, writeConfigAtomic, type CanvasConfig } from "../src/shared/look.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER } from "../src/shared/protocol.ts";
 import {
   applyPanelInput,
@@ -83,11 +83,16 @@ test("clearing the wallpaper lets the theme's wallpaper show again, theme untouc
   const home = makeHome();
   const before: CanvasConfig = { theme: "mine", wallpaper: { image: "/w/pic.jpg", blur: 8 } };
   const after = applyPanelInput(before, { wallpaper: null }, home);
-  assert.equal(after.wallpaper, null);
   assert.equal(after.theme, "mine");
-  // And the panel reports the fallback correctly.
-  writeConfigAtomic(home, after);
-  writeConfigAtomic(home, { theme: "builtinwp" });
+  assert.equal(after.wallpaper, undefined); // the override is gone, not an explicit `null`
+  // The flow from the bug report: clear, then switch to a wallpapered theme — its wallpaper must
+  // actually resolve, not stay blank until some knob is nudged.
+  const switched = applyPanelInput(after, { theme: "builtinwp" }, home);
+  writeConfigAtomic(home, switched);
+  const { look } = loadLook(home);
+  assert.equal(look?.wallpaper.dark?.image, join(home, "runtime", "themes", "builtinwp", "bg.png"));
+  assert.equal(look?.wallpaper.light?.image, join(home, "runtime", "themes", "builtinwp", "bg.png"));
+  assert.equal(look?.wallpaper.dark?.blur, 0); // the old tuning died with the override
   assert.equal(readPanelData(home).wallpaper.fromTheme, true);
 });
 
@@ -290,13 +295,17 @@ test("the apply handler writes the merged config to disk and triggers a reload",
   assert.deepEqual(result, { ok: true });
   const config = readConfig(home);
   assert.equal(config.theme, null);
-  assert.equal(config.wallpaper, null);
+  assert.equal(config.wallpaper, undefined);
   assert.equal(reloads.length, 1);
+  // After a reset no override lingers: switching to a wallpapered theme shows its wallpaper.
+  await listeners.get(CHANNEL_PANEL_APPLY)!(undefined, { theme: "builtinwp" });
+  const { look } = loadLook(home);
+  assert.equal(look?.wallpaper.dark?.image, join(home, "runtime", "themes", "builtinwp", "bg.png"));
   // Invalid requests reject (the renderer shows them) without writing anything.
   await assert.rejects(async () => {
     await listeners.get(CHANNEL_PANEL_APPLY)!(undefined, { theme: "nope" });
   });
-  assert.equal(readConfig(home).theme, null);
+  assert.equal(readConfig(home).theme, "builtinwp");
 });
 
 test("a channel that cannot be registered is logged and skipped; the rest still works", async () => {
