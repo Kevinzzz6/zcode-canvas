@@ -5,7 +5,8 @@ import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "no
 import { join } from "node:path";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, type Material } from "../shared/look.ts";
-import { CHANNEL_CSS, CHANNEL_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
+import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_MANAGE, CHANNEL_PANEL_LOG, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
+import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome } from "./watch.ts";
@@ -79,12 +80,30 @@ function panelPath(file: string): string {
 function panelPreloadPath(): string {
   return join(__dirname, "panel-preload.cjs");
 }
-function openPanel() {
+function openManagementPanel() {
   if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
   panel = new BrowserWindow({ width: 640, height: 700, minWidth: 520, minHeight: 480, title: "ZCode Canvas 外观中心", webPreferences: { preload: panelPreloadPath(), contextIsolation: true, nodeIntegration: false, sandbox: true } });
-  panel.loadFile(panelPath("panel.html"));
+  void panel.loadFile(panelPath("panel.html")).catch((error) => log(`panel load failed: ${String(error)}`));
   panel.on("closed", () => { panel = null; });
 }
+
+/** Prefer the focused main window; the tray reopens the last active one even with its tab hidden. */
+function openPanel() {
+  try {
+    const focused = BrowserWindow.getFocusedWindow();
+    const target = focused && isMainWindowUrl(focused.webContents.getURL()) ? focused :
+      BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed() && isMainWindowUrl(win.webContents.getURL()))
+        .sort((a, b) => (lastFocused.get(b.webContents.id) ?? 0) - (lastFocused.get(a.webContents.id) ?? 0))[0];
+    if (target) {
+      if (target.isMinimized()) target.restore();
+      target.show();
+      target.focus();
+      target.webContents.send(CHANNEL_PANEL_OPEN);
+    } else openManagementPanel();
+  } catch (error) { log(`panel open failed: ${String(error)}`); }
+}
+
+const lastFocused = new Map<number, number>();
 
 function canvasMenuItem(): MenuItem {
   return new MenuItem({
@@ -153,30 +172,34 @@ function installInWindowShortcut() {
   app.on("browser-window-created", (_event, window) => {
     try {
       window.webContents.on("before-input-event", (event, input) => {
-        if (shortcutRecordingActive || !matchesPanelShortcut(input)) return;
-        event.preventDefault();
-        openPanel();
+        try {
+          if (shortcutRecordingActive || !matchesPanelShortcut(input) || !isMainWindowUrl(window.webContents.getURL())) return;
+          event.preventDefault();
+          openPanel();
+        } catch (error) { log(`shortcut failed: ${String(error)}`); }
       });
+      const id = window.webContents.id;
+      window.on("focus", () => { lastFocused.set(id, Date.now()); });
+      window.on("closed", () => { lastFocused.delete(id); });
     } catch (error) {
       log(`shortcut wiring failed: ${String(error)}`);
     }
   });
 }
 
-/** True when a panel-channel request comes from the panel window's own webContents. */
+/** Only the owned standalone panel or a verified top-level main page can use panel IPC. */
 const isPanelSender = (event: unknown): boolean => {
   const sender = (event as { sender?: unknown } | null | undefined)?.sender;
-  return !!panel && !panel.isDestroyed() && sender === panel.webContents;
+  const frame = (event as IpcMainEvent | undefined)?.senderFrame;
+  return (!!panel && !panel.isDestroyed() && sender === panel.webContents && frame === panel.webContents.mainFrame) ||
+    senderIsMainWindow(event as IpcMainEvent);
 };
 
 /** The main window's page is the only legitimate source of a GET — its session preload sends one at
  *  document start. The same conditions the preload checks on itself, enforced on the main side. */
 function senderIsMainWindow(event: IpcMainEvent): boolean {
   try {
-    const url = event.senderFrame?.url ?? "";
-    if (!url.startsWith("file:")) return false;
-    const parsed = new URL(url);
-    return /\/out\/renderer\/index\.html$/.test(parsed.pathname) && !parsed.searchParams.has("windowKind");
+    return event.senderFrame === event.sender.mainFrame && isMainWindowUrl(event.senderFrame?.url ?? "");
   } catch {
     return false;
   }
@@ -189,7 +212,7 @@ async function pickWallpaperFile(): Promise<string | null> {
     properties: ["openFile"],
     filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "webp", "avif", "svg", "gif"] }],
   };
-  const owner = panel && !panel.isDestroyed() ? panel : undefined;
+  const owner = BrowserWindow.getFocusedWindow() ?? undefined;
   const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options);
   return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]!;
 }
@@ -233,6 +256,7 @@ function reload() {
     if (contents.isDestroyed()) continue;
     try {
       if (cssChanged) contents.send(CHANNEL_CSS, encodeState(state.css));
+      contents.send(CHANNEL_PANEL_CHANGED);
       if (materialChanged) applyMaterial(contents);
     } catch (error) {
       log(`update failed: ${String(error)}`);
@@ -266,6 +290,21 @@ try {
   });
 
   registerPanelHandlers({ home, ipc: ipcMain, log, pickWallpaperFile, reload, isPanelSender });
+  try {
+    ipcMain.handle(CHANNEL_PANEL_MANAGE, (event) => {
+      try {
+        if (!isPanelSender(event)) return;
+        openManagementPanel();
+      } catch (error) { log(`management panel failed: ${String(error)}`); }
+    });
+  } catch (error) { log(`management channel unavailable: ${String(error)}`); }
+  try {
+    ipcMain.on(CHANNEL_PANEL_LOG, (event, message: unknown) => {
+      try {
+        if (senderIsMainWindow(event) && typeof message === "string") log(`overlay: ${message.slice(0, 1000)}`);
+      } catch { /* Logging never affects the host. */ }
+    });
+  } catch (error) { log(`overlay logging unavailable: ${String(error)}`); }
 
   app.once("ready", () => {
     try {

@@ -34,12 +34,22 @@
 | 窗口外框 `[data-desktop-window-frame]` | `packages/ui/src/DesktopWindowFrame.tsx` | `src/shared/css.ts` | 毛玻璃失效 |
 | 启动画面 `#loading`、`.startup-logo-shell`、`body.zcode-startup-ready` | `packages/desktop/src/renderer/index.html` | `src/shared/css.ts` | 启动画面定制失效 |
 | 主窗口页面路径 `out/renderer/index.html`，其他窗口带 `windowKind` 参数 | `packages/desktop/src/main` 中创建窗口的代码 | `src/runtime/preload.ts`、`src/runtime/main.ts` 的 `senderIsMainWindow` | 样式不注入，或注入到错误的窗口 |
+| 主渲染页允许 preload 向文档根节点追加自有 Shadow DOM；入口默认位于右侧、底部上方约 220px 的几何假设 | 主渲染页与窗口布局（不查询状态栏、编辑器或通知容器） | `src/runtime/overlay.ts` | 浮层可能无法显示，或入口与宿主内容重叠；可拖动、隐藏、重置，快捷键/托盘仍可唤起 |
 | 应用菜单整体重建时调用 `Menu.setApplicationMenu` | `desktopApplicationMenu.ts` 的 `rebuildApplicationMenu` | `src/runtime/main.ts` 的 `wrapApplicationMenu` | 菜单入口消失 |
 | 托盘菜单整体重建时调用 `Tray.setContextMenu` | `desktopTray.ts` 的 `rebuildContextMenu` | `src/runtime/main.ts` 的 `wrapTrayMenu` | Windows 托盘入口消失 |
 | 快捷键录制状态的 IPC 通道 `zcode:set-shortcut-recording-active` | `packages/shared/src/channels.ts` 的 `SetShortcutRecordingActive` | `src/shared/protocol.ts`、`src/runtime/main.ts` 的 `observeShortcutRecording` | 录制快捷键期间 Canvas 快捷键不再让位 |
 | Electron fuse：asar 完整性校验关闭，RunAsNode 开启 | `ZCode.exe` 的打包配置 | 整个补丁方案 | 完整性校验一旦开启，补丁方案整体失效（见第 5 节） |
 
 新增任何对 ZCode 内部实现的依赖，都要先在这张表里加一行。
+
+### 外观浮层的边界
+
+- 只在现有 URL / `windowKind` 判定通过的顶层主渲染页挂载。样式与控件封装在自有 Shadow DOM 中，不观察宿主通知、编辑器或状态栏的 DOM，不修改官方 renderer 代码。
+- 页内只放主题色卡、用户已导入的壁纸库和微调。添加单张图片走原生选择器；批量导入/管理继续留给 CLI 等独立工具。保留原独立外观窗口作为辅助入口。
+- 壁纸缩略图使用 `loading="lazy"`；GIF 加载后用 canvas 捕获静帧并释放动画图片，不给 88 张图片增加虚拟化。实际壁纸 GIF 继续播放。
+- 拖动滑杆仅在当前窗口乐观预览，松手通过主进程既有白名单校验与原子写入提交，失败清除预览、恢复已保存状态。配置全局共享，watcher 同步所有主窗口。
+- 选择库内壁纸只接受受校验的平面文件 ID，主进程解析到 Canvas 自有库；不接受渲染层指定的任意路径。既有配置写入模型保持不变。
+- 入口位置与隐藏状态使用带命名空间的本地 UI 偏好，不混入外观配置；入口可直接拖动，菜单只提供隐藏/显示与重置位置。关闭浮层不撤销已提交外观。
 
 ## 4. 修复门槛
 
