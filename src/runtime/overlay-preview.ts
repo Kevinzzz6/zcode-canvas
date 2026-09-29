@@ -1,3 +1,4 @@
+import { mainCappedByFrame, type GlassRegion } from "../shared/glass.ts";
 import type { ResolvedLook, ResolvedWallpaper, WallpaperFit } from "../shared/look.ts";
 
 /** UI control metadata. API names and ranges are validated again by the main process. */
@@ -13,13 +14,32 @@ export const knobs = {
   positionX: { label: "水平位置", min: 0, max: 100, step: 1, unit: "%", fallback: 50, group: "wallpaper" },
   positionY: { label: "垂直位置", min: 0, max: 100, step: 1, unit: "%", fallback: 50, group: "wallpaper" },
   radius: { label: "圆角", min: 0, max: 4, step: .05, unit: "×", fallback: 1, group: "theme" },
+  frameTransparency: { label: "侧栏", min: 0, max: 100, step: 1, unit: "%", fallback: 0, group: "region", region: "frame" },
+  mainTransparency: { label: "主区域", min: 0, max: 100, step: 1, unit: "%", fallback: 0, group: "region", region: "main" },
+  cardTransparency: { label: "卡片", min: 0, max: 100, step: 1, unit: "%", fallback: 0, group: "region", region: "card" },
+  inputTransparency: { label: "输入框", min: 0, max: 100, step: 1, unit: "%", fallback: 0, group: "region", region: "input" },
+  mainBlur: { label: "主区模糊", min: 0, max: 100, step: 1, unit: "px", fallback: 0, group: "region", region: "main", curve: "ease" },
+  cardBlur: { label: "卡片模糊", min: 0, max: 100, step: 1, unit: "px", fallback: 0, group: "region", region: "card", curve: "ease" },
+  inputBlur: { label: "输入模糊", min: 0, max: 100, step: 1, unit: "px", fallback: 0, group: "region", region: "input", curve: "ease" },
 } as const;
 
 export type Knob = keyof typeof knobs;
 
+/** Controls shown as "how transparent", 0..100 %, and stored inverted as opacity 0..1. */
+export function isTransparency(key: Knob): boolean {
+  return key === "transparency" || key.endsWith("Transparency");
+}
+
+/** The glass region a per-region control belongs to. */
+export function regionOf(key: Knob): GlassRegion | null {
+  const spec = knobs[key];
+  return "region" in spec ? spec.region : null;
+}
+
 /** Name of the control in panel requests; transparency is stored inverted as glass opacity. */
 export function inputKey(key: Knob): string {
-  return key === "transparency" ? "glassOpacity" : key;
+  if (key === "transparency") return "glassOpacity";
+  return isTransparency(key) ? key.replace("Transparency", "Opacity") : key;
 }
 
 /** Curved sliders run over 0..SLIDER_SPAN; linear ones use the value's own range. */
@@ -75,7 +95,7 @@ export function trackFraction(key: Knob, value: number): number {
 
 /** Ratios (1 = 100%) are shown and typed as percentages; everything else in its own unit. */
 function displayFactor(key: Knob): number {
-  return knobs[key].unit === "%" && key !== "transparency" && key !== "positionX" && key !== "positionY" ? 100 : 1;
+  return knobs[key].unit === "%" && !isTransparency(key) && key !== "positionX" && key !== "positionY" ? 100 : 1;
 }
 
 export function displayNumber(key: Knob, value: number): number {
@@ -103,7 +123,7 @@ export function knobRangeText(key: Knob): string {
 }
 
 export function formatKnob(key: Knob, value: number): string {
-  if (key === "transparency" || key === "positionX" || key === "positionY") return `${Math.round(value)}%`;
+  if (isTransparency(key) || key === "positionX" || key === "positionY") return `${Math.round(value)}%`;
   if (knobs[key].unit === "%") return `${Math.round(value * 100)}%`;
   if (key === "radius") return `${Number(value.toFixed(2))}×`;
   return `${Math.round(value)}${knobs[key].unit}`;
@@ -130,10 +150,12 @@ export function positionValue(position: string | undefined, axis: 0 | 1): number
 export function knobValue(look: ResolvedLook, wallpaper: ResolvedWallpaper | null, key: Knob): number {
   if (key === "transparency") return Math.round((1 - look.glass.opacity) * 100);
   if (key === "glassBlur") return look.glass.blur;
+  const region = regionOf(key);
+  if (region) return isTransparency(key) ? Math.round((1 - look.glass.regions[region].opacity) * 100) : look.glass.regions[region].blur;
   if (key === "radius") return look.radius ?? knobs.radius.fallback;
   if (key === "positionX") return positionValue(wallpaper?.position, 0);
   if (key === "positionY") return positionValue(wallpaper?.position, 1);
-  return wallpaper?.[key] ?? knobs[key].fallback;
+  return wallpaper?.[key as "blur" | "saturate" | "contrast" | "grayscale" | "scale" | "brightness"] ?? knobs[key].fallback;
 }
 
 export interface Size { width: number; height: number }
@@ -156,6 +178,8 @@ export function positionSlack(fit: WallpaperFit, scale: number, blur: number, im
 export interface DiagnosisInput {
   wallpaper: ResolvedWallpaper | null;
   transparency: number;
+  /** Transparency (0..100) per region; omitted means every region follows `transparency`. */
+  regions?: Record<GlassRegion, number>;
   fit: WallpaperFit;
   scale: number;
   blur: number;
@@ -167,25 +191,40 @@ export interface Diagnosis {
   /** Controls that cannot have any effect in the current state, with the reason. */
   disabled: Partial<Record<Knob, string>>;
   /** Short hints shown right next to the controls they explain; null shows nothing extra. */
-  hints: { primary: string | null; wallpaper: string | null; material: string | null };
+  hints: { primary: string | null; wallpaper: string | null; material: string | null; region: string | null };
 }
 
 /** Explain why a control would look broken: what hides its effect, and what to change instead. */
-export function diagnose({ wallpaper, transparency, fit, scale, blur, image, viewport }: DiagnosisInput): Diagnosis {
+export function diagnose({ wallpaper, transparency, regions: given, fit, scale, blur, image, viewport }: DiagnosisInput): Diagnosis {
   const disabled: Diagnosis["disabled"] = {};
-  const hints: Diagnosis["hints"] = { primary: null, wallpaper: null, material: null };
-  const opaque = transparency <= 0;
+  const hints: Diagnosis["hints"] = { primary: null, wallpaper: null, material: null, region: null };
+  const regions = given ?? { frame: transparency, main: transparency, card: transparency, input: transparency };
+  const opaque = Object.values(regions).every((value) => value <= 0);
+  // The frame paints the whole window (the sidebar is the frame showing), so nothing behind it can
+  // show while it is opaque: not the wallpaper, not the material.
+  const frameOpaque = regions.frame <= 0;
   if (opaque) {
     disabled.glassBlur = "界面不透明时，模糊没有可透出的内容";
     hints.primary = wallpaper ? "界面当前不透明，壁纸被遮住。调高「界面透明」即可显示。" : "界面当前不透明，调高「界面透明」后界面模糊才生效。";
     hints.material = "界面不透明时看不到原生材质。";
+  } else if (frameOpaque) {
+    hints.primary = wallpaper ? "侧栏不透明，壁纸被遮住。在「分区玻璃」调高侧栏透明即可显示。" : null;
+    hints.material = "侧栏不透明时看不到原生材质。";
+    hints.region = "侧栏是整个窗口的底层：它不透明时，其他区域只能透出侧栏的颜色。";
   } else if (wallpaper) hints.material = "壁纸会盖住原生材质，清除壁纸后可见。";
+  for (const key of ["mainBlur", "cardBlur", "inputBlur"] as const) {
+    if (regions[regionOf(key)!] <= 0) disabled[key] = "这个区域不透明时，模糊没有可透出的内容";
+  }
+  if (!hints.region && mainCappedByFrame({
+    frame: { opacity: 1 - regions.frame / 100, blur: 0 }, main: { opacity: 1 - regions.main / 100, blur: 0 },
+    card: { opacity: 1, blur: 0 }, input: { opacity: 1, blur: 0 },
+  })) hints.region = "主区域叠在侧栏之上，看起来最多和侧栏一样透明；想更通透，先调高侧栏透明。";
   if (!wallpaper) {
     for (const key of Object.keys(knobs) as Knob[]) if (knobs[key].group === "wallpaper" || key === "brightness") disabled[key] = "还没有壁纸";
     hints.wallpaper = "先在上方选择一张壁纸，再调整这些选项。";
     return { disabled, hints };
   }
-  if (opaque) hints.wallpaper = "壁纸正被不透明的界面遮住，调整结果暂时看不到。";
+  if (frameOpaque) hints.wallpaper = "壁纸正被不透明的界面遮住，调整结果暂时看不到。";
   const slack = positionSlack(fit, scale, blur, image, viewport);
   if (fit === "fill" && slack && !slack.x && !slack.y) {
     disabled.positionX = disabled.positionY = "拉伸铺满时位置不起作用";

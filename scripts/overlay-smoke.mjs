@@ -180,6 +180,59 @@ try {
   assert.equal(await ui('return this.getElementById("overlay-notice").hidden'), true);
   await ui('this.getElementById("wallpaper-details").open=false;this.getElementById("theme-details").open=false;this.querySelector(".content").scrollTop=0;document.getElementById("canvas-smoke-frame").remove()');
 
+  // Simple mode hides the detail groups without touching saved settings; advanced shows them.
+  await ui('this.getElementById("mode-simple").click()');
+  assert.equal(await ui('return getComputedStyle(this.getElementById("region-details")).display'), "none");
+  await ui('this.getElementById("mode-advanced").click()');
+  assert.notEqual(await ui('return getComputedStyle(this.getElementById("region-details")).display'), "none");
+  assert.equal(JSON.parse(await ui('return localStorage.getItem("zcode-canvas:entry:v1")')).advanced, true);
+
+  // Smart Palette: seeds are read from the real painted wallpaper (a file: URL into a canvas).
+  const wall = await ui('return getComputedStyle(document.body,"::before").backgroundImage');
+  assert.match(wall, /^url\("file:/, "a wallpaper is painted for the palette to sample");
+  let seedCount = 0;
+  for (let i = 0; i < 20 && !seedCount; i++) { await pause(150); seedCount = await ui('return this.querySelectorAll(".seed").length'); }
+  assert.ok(seedCount > 0, `seeds sampled from the wallpaper (hint: ${await ui('return this.getElementById("palette-hint").textContent')})`);
+  const beforePalette = readFileSync(configFile, "utf8");
+  const officialBackground = await ui('return getComputedStyle(document.documentElement).getPropertyValue("--color-background").trim()');
+  await ui('this.querySelector(".variant[data-variant=oled]").dispatchEvent(new PointerEvent("pointerenter"))');
+  await pause();
+  assert.equal(readFileSync(configFile, "utf8"), beforePalette, "hovering a style only previews");
+  const darkMode = await ui('return document.documentElement.classList.contains("dark")');
+  if (darkMode) assert.equal(await ui('return getComputedStyle(document.documentElement).getPropertyValue("--color-background").trim()'), "#000000", "OLED preview is black");
+  await ui('this.querySelector(".variant[data-variant=oled]").dispatchEvent(new PointerEvent("pointerleave"))');
+  await pause();
+  assert.equal(await ui('return getComputedStyle(document.documentElement).getPropertyValue("--color-background").trim()'), officialBackground, "leaving restores the saved look");
+  await ui('this.querySelector(".variant[data-variant=vivid]").click()');
+  await pause();
+  const applied = config().palette;
+  assert.equal(applied.variant, "vivid");
+  assert.match(applied.seed, /^#[0-9a-f]{6}$/);
+  assert.match(applied.backdrop, /^#[0-9a-f]{6}$/, "the wallpaper's average color rides along for the readability check");
+  assert.equal(await ui('return this.querySelector(".variant[aria-pressed=true]").dataset.variant'), "vivid");
+  assert.notEqual(await ui('return getComputedStyle(document.documentElement).getPropertyValue("--color-background").trim()'), officialBackground);
+  await ui('this.getElementById("palette-clear").click()');
+  await pause();
+  assert.equal(config().palette, undefined);
+
+  // Regions: an untuned region slider follows the global one; a tuned one writes glass.regions.
+  await ui('this.getElementById("region-details").open=true');
+  await change("transparency", 40);
+  assert.equal(await ui('return this.getElementById("cardTransparency-value").textContent'), "40%", "untuned regions follow the global slider");
+  await change("inputTransparency", 10);
+  await change("frameTransparency", 70);
+  assert.ok(Math.abs(config().glass.regions.input.opacity - .9) < 1e-6);
+  assert.ok(Math.abs(config().glass.regions.frame.opacity - .3) < 1e-6);
+  await ui('const frame=document.createElement("div");frame.id="canvas-smoke-frame";frame.innerHTML="<div id=\\"root\\"><div class=\\"bg-input\\" id=\\"canvas-smoke-input\\"></div></div>";document.body.append(frame)');
+  const inputColor = await ui('return getComputedStyle(document.getElementById("canvas-smoke-input")).backgroundColor');
+  assert.match(inputColor, /\/ 0\.95\)|, 0\.95\)/, `input keeps 95% of its color (${inputColor})`);
+  await change("mainTransparency", 90);
+  assert.equal(await ui('return this.getElementById("region-hint").hidden'), false, "a main pane clearer than the frame explains why");
+  await ui('this.getElementById("reset-regions").click()');
+  await pause();
+  assert.equal(config().glass.regions, undefined);
+  await ui('document.getElementById("canvas-smoke-frame").remove();this.getElementById("region-details").open=false;this.querySelector(".content").scrollTop=0');
+
   // Visit all rows: each loaded GIF becomes a static canvas and releases its animated image.
   const scrollHeight = await ui('return this.getElementById("library").scrollHeight');
   for (let top = 0; top < scrollHeight; top += 220) { await ui(`this.getElementById("library").scrollTop=${top}`); await pause(75); }

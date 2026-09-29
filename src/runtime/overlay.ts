@@ -1,7 +1,9 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
-import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, knobRangeText, knobs, knobValue, parseKnobInput, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
+import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, isTransparency, knobRangeText, knobs, knobValue, parseKnobInput, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
+import { GLASS_REGIONS } from "../shared/glass.ts";
 import type { WallpaperFit } from "../shared/look.ts";
+import { extractColors, generatePalette, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
 
 export interface OverlayApi {
   get(): Promise<PanelData>;
@@ -14,9 +16,14 @@ export interface OverlayApi {
 }
 
 const PREF_KEY = "zcode-canvas:entry:v1";
-type Preferences = { hidden: boolean; side: "left" | "right"; y: number | null; seen: boolean };
-const defaults = (): Preferences => ({ hidden: false, side: "right", y: null, seen: false });
+type Preferences = { hidden: boolean; side: "left" | "right"; y: number | null; seen: boolean; advanced: boolean };
+const defaults = (): Preferences => ({ hidden: false, side: "right", y: null, seen: false, advanced: false });
 const POSITION_HINT = "位置按图片和窗口的剩余空间对齐；填满时会调整裁切。";
+const VARIANT_LABELS: Record<PaletteVariant, string> = { natural: "自然", vivid: "鲜艳", soft: "柔和", oled: "OLED", contrast: "高对比" };
+const REGION_KNOBS = { frame: "frameTransparency", main: "mainTransparency", card: "cardTransparency", input: "inputTransparency" } as const;
+const REGION_BLUR_KNOBS = { main: "mainBlur", card: "cardBlur", input: "inputBlur" } as const;
+/** Longest side of the downscaled copy colors are read from. */
+const SAMPLE_SIZE = 96;
 const paletteIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.5-3.3 1.5 1.5 0 0 1 1.1-2.5H18A3 3 0 0 0 21 12a9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="11" cy="6.8" r=".8"/><circle cx="15.5" cy="8" r=".8"/></svg>';
 
 function pickerColor(value: unknown): string | null {
@@ -55,15 +62,27 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
         <div class="label wallpaper-heading">我的壁纸<small id="count"></small><span class="spacer"></span><button id="pick" class="text-button">＋ 添加图片</button></div>
         <div class="library" id="library" aria-label="壁纸库"></div>
         <div class="current"><span id="current"></span><button id="clear" class="text-button" title="清除个人壁纸覆盖，恢复主题自带壁纸">恢复主题壁纸</button></div>
-        <div class="tuning"><div class="label compact">常用调节</div><div id="primary-knobs"></div><div id="primary-hint" class="hint notice" role="note" hidden></div>
+        <div class="palette">
+          <div class="label">智能配色<span id="palette-on" class="custom-tag" hidden>使用中</span><span class="spacer"></span><button id="palette-clear" class="text-button" title="移除个人智能配色，恢复主题自带的颜色" hidden>恢复主题配色</button></div>
+          <div class="seeds" id="seeds" role="group" aria-label="种子色"></div>
+          <div class="variants" id="variants" role="group" aria-label="配色风格"></div>
+          <div id="palette-hint" class="hint palette-hint" role="note" hidden></div>
+        </div>
+        <div class="tuning"><div class="label compact">常用调节<span class="spacer"></span><span class="mode-switch" role="group" aria-label="控件数量"><button id="mode-simple" type="button">简单</button><button id="mode-advanced" type="button">高级</button></span></div><div id="primary-knobs"></div><div id="primary-hint" class="hint notice" role="note" hidden></div>
           <div id="overlay-notice" class="overlay-notice" hidden>旧遮罩正在生效 <button id="clear-overlay" class="text-button">清除遮罩</button></div>
-          <details id="theme-details"><summary>主题细节<span id="theme-detail-custom" class="custom-tag" hidden>已自定义</span></summary><div id="theme-knobs"></div>
+          <details id="theme-details" class="advanced"><summary>主题细节<span id="theme-detail-custom" class="custom-tag" hidden>已自定义</span></summary><div id="theme-knobs"></div>
             <label class="select-row">强调色<span class="spacer"></span><small id="accent-current" class="accent-current"></small><input type="color" id="accent" aria-label="强调色"></label>
             <label class="select-row" id="material-row">原生材质<select id="material" aria-label="原生材质"><option value="none">无</option><option value="acrylic">亚克力</option><option value="mica">云母</option><option value="tabbed">标签云母</option></select></label>
             <div id="material-hint" class="hint" role="note" hidden></div>
             <button id="reset-theme" class="text-button" title="恢复主题默认外观，保留当前壁纸">恢复主题默认</button>
           </details>
-          <details id="wallpaper-details"><summary>壁纸细节<span id="wallpaper-custom" class="custom-tag" hidden>已自定义</span></summary><div id="wallpaper-knobs"></div>
+          <details id="region-details" class="advanced"><summary>分区玻璃<span id="region-custom" class="custom-tag" hidden>已自定义</span></summary>
+            <div class="hint">没有单独调过的区域跟随「界面透明」和「界面模糊」。菜单、弹窗和提示始终不透明。</div>
+            <div id="region-knobs"></div>
+            <div id="region-hint" class="hint notice" role="note" hidden></div>
+            <button id="reset-regions" class="text-button" title="删除所有分区设置，全部跟随整体透明和模糊">全部跟随整体</button>
+          </details>
+          <details id="wallpaper-details" class="advanced"><summary>壁纸细节<span id="wallpaper-custom" class="custom-tag" hidden>已自定义</span></summary><div id="wallpaper-knobs"></div>
             <label class="select-row">铺放方式<select id="fit" aria-label="铺放方式"><option value="cover">填满</option><option value="contain">适应</option><option value="fill">拉伸</option><option value="center">居中</option><option value="tile">平铺</option></select></label>
             <div id="wallpaper-hint" class="hint" role="note"></div>
             <button id="center-position" class="text-button" title="将水平和垂直位置恢复到 50%">居中图片</button>
@@ -96,6 +115,14 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   const values = {} as Record<Knob, number>;
   /** Natural image sizes by URL; null = unmeasurable (e.g. an SVG without intrinsic size). */
   const imageSizes = new Map<string, Size | null>();
+  /** Smart Palette state: seeds read from the painted wallpaper, which URL they came from, the pick. */
+  let seeds: string[] = [];
+  let average: string | null = null;
+  let sampledUrl: string | null | undefined;
+  let sampleTicket = 0;
+  let sampleFailed = false;
+  let selectedSeed: string | null = null;
+  let paletteSignature = "";
   const report = (error: unknown) => {
     api.log(String(error));
     $("status").textContent = "暂时无法完成操作，请重试";
@@ -110,7 +137,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     try {
       const saved = JSON.parse(localStorage.getItem(PREF_KEY) ?? "null");
       prefs = saved ? { hidden: saved.hidden === true, side: saved.side === "left" ? "left" : "right",
-        y: typeof saved.y === "number" && Number.isFinite(saved.y) ? Math.min(1, Math.max(0, saved.y)) : null, seen: saved.seen === true } : defaults();
+        y: typeof saved.y === "number" && Number.isFinite(saved.y) ? Math.min(1, Math.max(0, saved.y)) : null, seen: saved.seen === true,
+        advanced: saved.advanced === true } : defaults();
     } catch { prefs = defaults(); }
   }
   function savePreferences() {
@@ -202,6 +230,11 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   function mode() { return document.documentElement.classList.contains("dark") ? "dark" : "light"; }
   /** The value the theme gives this control, i.e. what "恢复默认" returns to. */
   function defaultOf(key: Knob): number {
+    const region = regionOf(key);
+    if (data && region) {
+      const own = data.regionDefaults[region];
+      return isTransparency(key) ? Math.round((1 - own.opacity) * 100) : own.blur;
+    }
     return data ? knobValue(data.defaults, data.defaults.wallpaper[mode()], key) : knobs[key].fallback;
   }
   function syncReset(key: Knob) {
@@ -223,14 +256,22 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   }
   /** Preview one control's new value; the caller commits it (release, Enter, keyboard step). */
   function stage(key: Knob, value: number) {
-    if (key === "transparency") pending.glassOpacity = Number((1 - value / 100).toFixed(4));
+    if (isTransparency(key)) (pending as Record<string, unknown>)[inputKey(key)] = Number((1 - value / 100).toFixed(4));
     else if (key === "positionX" || key === "positionY") {
       pending.positionX = key === "positionX" ? value : values.positionX;
       pending.positionY = key === "positionY" ? value : values.positionY;
     }
     else (pending as Record<string, unknown>)[key] = value;
     updateKnob(key, value);
-    if (key === "transparency" || key === "scale" || key === "blur") updateHints();
+    // Regions nobody tuned move with the global controls, on screen as they do in the sheet.
+    if (data && (key === "transparency" || key === "glassBlur")) {
+      for (const region of GLASS_REGIONS) {
+        const follows = data.regionFollows[region];
+        if (key === "transparency" && follows.opacity) updateKnob(REGION_KNOBS[region], value);
+        if (key === "glassBlur" && region !== "frame" && follows.blur) updateKnob(REGION_BLUR_KNOBS[region], value);
+      }
+    }
+    if (isTransparency(key) || key === "scale" || key === "blur" || key.endsWith("Blur")) updateHints();
     if (data && data.config.enabled !== false) void api.preview({ ...pending }).catch(report);
   }
   function measure(url: string | null | undefined): Size | null {
@@ -255,6 +296,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     const wallpaper = data.effective.wallpaper[mode()];
     const { disabled, hints } = diagnose({
       wallpaper, transparency: values.transparency, fit: $<HTMLSelectElement>("fit").value as WallpaperFit,
+      regions: { frame: values.frameTransparency, main: values.mainTransparency, card: values.cardTransparency, input: values.inputTransparency },
       scale: values.scale, blur: values.blur, image: measure(data.imageUrl?.[mode()]),
       viewport: { width: innerWidth, height: innerHeight },
     });
@@ -267,6 +309,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     }
     const show = (id: string, text: string | null) => { $(id).textContent = text ?? ""; $(id).hidden = !text; };
     show("primary-hint", hints.primary);
+    show("region-hint", hints.region);
     show("material-hint", data.platform === "win32" ? hints.material : null);
     show("wallpaper-hint", hints.wallpaper ?? POSITION_HINT);
   }
@@ -345,8 +388,122 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     listen(input, "pointercancel", () => { draggingSlider = false; return commitPending(); });
     listen(input, "blur", () => { if (activeSlider === input) return commitPending(); });
   }
+  /** Read seed colors from a small copy of the painted wallpaper; a stale answer is dropped. */
+  function sampleWallpaper(url: string | null) {
+    const ticket = ++sampleTicket;
+    seeds = []; average = null; sampleFailed = false;
+    if (!url) { renderPalette(); return; }
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => safe(() => {
+      if (ticket !== sampleTicket) return;
+      try {
+        const width = image.naturalWidth || SAMPLE_SIZE, height = image.naturalHeight || SAMPLE_SIZE;
+        const k = Math.min(1, SAMPLE_SIZE / Math.max(width, height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(width * k)); canvas.height = Math.max(1, Math.round(height * k));
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("sample canvas unavailable");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const found = extractColors(context.getImageData(0, 0, canvas.width, canvas.height).data);
+        seeds = found?.seeds ?? []; average = found?.average ?? null; sampleFailed = !found;
+      } catch (error) {
+        sampleFailed = true;
+        api.log(`palette sample: ${String(error)}`);
+      } finally {
+        image.removeAttribute("src");
+      }
+      renderPalette();
+    })();
+    image.onerror = () => { if (ticket !== sampleTicket) return; sampleFailed = true; image.removeAttribute("src"); safe(renderPalette)(); };
+    image.src = url;
+  }
+  function palettePayload(variant: PaletteVariant): PanelInput["palette"] {
+    return { seed: selectedSeed, variant, ...(average ? { backdrop: average } : {}) };
+  }
+  function renderPalette() {
+    if (!data) return;
+    const own = data.config.palette ?? null;
+    const off = data.config.enabled === false;
+    if (!selectedSeed || (!seeds.includes(selectedSeed) && selectedSeed !== own?.seed && selectedSeed !== $<HTMLInputElement>("seed-custom")?.value))
+      selectedSeed = own?.seed ?? seeds[0] ?? null;
+    const shown = selectedSeed && !seeds.includes(selectedSeed) ? [selectedSeed, ...seeds] : seeds;
+    const current = mode();
+    const signature = JSON.stringify([shown, selectedSeed, own, current, off]);
+    if (signature !== paletteSignature) {
+      paletteSignature = signature;
+      const seedRow = $("seeds");
+      seedRow.replaceChildren();
+      for (const seed of shown) {
+        const button = document.createElement("button");
+        button.type = "button"; button.className = "seed"; button.style.background = seed;
+        button.title = seed.toUpperCase(); button.setAttribute("aria-label", `种子色 ${seed.toUpperCase()}`);
+        button.setAttribute("aria-pressed", String(seed === selectedSeed)); button.disabled = off;
+        listen(button, "click", () => pickSeed(seed));
+        seedRow.append(button);
+      }
+      const custom = document.createElement("input");
+      custom.type = "color"; custom.id = "seed-custom"; custom.className = "seed-custom";
+      custom.title = "自选种子色"; custom.setAttribute("aria-label", "自选种子色"); custom.disabled = off;
+      custom.value = selectedSeed ?? "#8b7cf5";
+      listen(custom, "change", () => pickSeed(custom.value.toLowerCase()));
+      seedRow.append(custom);
+      const variantRow = $("variants");
+      variantRow.replaceChildren();
+      for (const variant of PALETTE_VARIANTS) {
+        const colors = selectedSeed ? generatePalette({ seed: selectedSeed, variant })?.colors[current] : undefined;
+        const button = document.createElement("button");
+        button.type = "button"; button.className = "variant"; button.dataset.variant = variant;
+        button.setAttribute("aria-pressed", String(!!own && own.seed === selectedSeed && (own.variant ?? "natural") === variant));
+        button.setAttribute("aria-label", `配色风格：${VARIANT_LABELS[variant]}`);
+        button.disabled = off || !colors;
+        const chip = document.createElement("span"); chip.className = "chip";
+        const card = document.createElement("i");
+        const dot = document.createElement("b");
+        if (colors) {
+          chip.style.background = colors.background ?? ""; chip.style.borderColor = colors.border ?? "";
+          card.style.background = colors.card ?? ""; dot.style.background = colors.brand ?? "";
+        }
+        chip.append(card, dot);
+        const name = document.createElement("span"); name.className = "variant-name"; name.textContent = VARIANT_LABELS[variant];
+        button.append(chip, name);
+        const previewVariant = () => { if (!busy && selectedSeed && !off) void api.preview({ palette: palettePayload(variant) }).catch(report); };
+        const endPreview = () => { if (!busy) api.clearPreview(); };
+        listen(button, "pointerenter", previewVariant); listen(button, "focus", previewVariant);
+        listen(button, "pointerleave", endPreview); listen(button, "blur", endPreview);
+        listen(button, "click", () => mutate(() => api.apply({ palette: palettePayload(variant) }), `已应用智能配色「${VARIANT_LABELS[variant]}」· 所有窗口同步`));
+        variantRow.append(button);
+      }
+    }
+    $("palette-on").hidden = !own;
+    $<HTMLButtonElement>("palette-clear").hidden = !own;
+    $<HTMLButtonElement>("palette-clear").disabled = off;
+    const readability = data.effective.palette?.readability[current];
+    const wallpaper = data.effective.wallpaper[current];
+    const note = readability && !readability.ok
+      ? `壁纸透出较多，正文对比度只有 ${readability.contrast.toFixed(1)}:1。调低「界面透明」或「图片亮度」会更易读。`
+      : own && seeds.length && !seeds.includes(own.seed) && wallpaper ? "壁纸已更换，点一个新的种子色即可按这张壁纸配色。"
+      : sampleFailed ? "无法读取这张图片的颜色，可以点最右边的色块自选一个颜色。"
+      : !wallpaper ? "没有壁纸时，点最右边的色块自选一个颜色生成配色。"
+      : null;
+    $("palette-hint").textContent = note ?? "";
+    $("palette-hint").hidden = !note;
+  }
+  function pickSeed(seed: string) {
+    selectedSeed = seed;
+    renderPalette();
+    const own = data?.config.palette;
+    // With a palette in use, a new seed recolors right away in the same style.
+    if (own) return mutate(() => api.apply({ palette: palettePayload(own.variant ?? "natural") }), "已按新的种子色更新配色");
+  }
+  function applyMode() {
+    panel.dataset.simple = String(!prefs.advanced);
+    $("mode-simple").setAttribute("aria-pressed", String(!prefs.advanced));
+    $("mode-advanced").setAttribute("aria-pressed", String(prefs.advanced));
+  }
   function render() {
     if (!data) return;
+    applyMode();
     const themes = $("themes");
     const wanted = [{ id: "", name: "原生", swatch: { background: "#292c34", accent: "#a2a9b8" } }, ...data.themes];
     // Keep controls and focus stable across global watcher updates.
@@ -399,7 +556,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
         img.src = frozen.get(item.url) ?? item.url;
         button.append(img);
         listen(button, "click", () => mutate(() => api.selectWallpaper(item.id), (next) =>
-          next.effective.glass.opacity >= 1 ? "已换上壁纸 · 界面不透明，调高「界面透明」后可见" : "已换上壁纸 · 所有窗口同步"));
+          next.effective.glass.regions.frame.opacity >= 1 ? "已换上壁纸 · 界面不透明，调高「界面透明」后可见"
+            : next.config.palette ? "已换上壁纸 · 可在「智能配色」按新壁纸取色" : "已换上壁纸 · 所有窗口同步"));
         library.append(button);
       }
       if (!data.wallpapers.length) {
@@ -421,6 +579,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     $("theme-custom").hidden = !data.overrides?.theme;
     $("theme-detail-custom").hidden = !data.overrides?.theme;
     $("wallpaper-custom").hidden = !data.overrides?.wallpaper;
+    const regionsTuned = !!data.config.glass?.regions && Object.keys(data.config.glass.regions).length > 0;
+    $("region-custom").hidden = !regionsTuned;
+    $<HTMLButtonElement>("reset-regions").disabled = !regionsTuned || data.config.enabled === false;
     $<HTMLButtonElement>("reset-theme").disabled = !data.overrides?.theme || data.config.enabled === false;
     $<HTMLButtonElement>("reset-tuning").disabled = !data.overrides?.wallpaper || data.config.enabled === false;
     $("material-row").hidden = data.platform !== "win32";
@@ -440,6 +601,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     $("overlay-notice").hidden = !wallpaper || wallpaper.dim <= 0;
     $<HTMLButtonElement>("clear-overlay").disabled = data.config.enabled === false;
     $("status").textContent = data.config.enabled === false ? "Canvas 当前已禁用，请在配置中启用" : "即点即用 · 所有窗口同步";
+    const painted = data.imageUrl?.[mode()] ?? null;
+    if (painted !== sampledUrl) { sampledUrl = painted; sampleWallpaper(painted); }
+    else renderPalette();
     position();
   }
   function showMenu(anchor: HTMLElement) {
@@ -484,7 +648,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   listen($("options"), "click", () => showMenu($("options")));
   listen($("close"), "click", () => dismiss(true));
   listen($("pick"), "click", () => mutate(() => api.pickWallpaper(), (next) =>
-    next.effective.glass.opacity >= 1 ? "壁纸库已更新 · 界面不透明，调高「界面透明」后可见" : "壁纸库已更新"));
+    next.effective.glass.regions.frame.opacity >= 1 ? "壁纸库已更新 · 界面不透明，调高「界面透明」后可见" : "壁纸库已更新"));
   listen($("clear"), "click", () => mutate(() => api.apply({ wallpaper: null }), "已恢复主题壁纸"));
   listen($("fit"), "change", () => mutate(() => api.apply({ fit: $<HTMLSelectElement>("fit").value }), "已更新铺放方式"));
   listen($("accent"), "change", () => {
@@ -496,10 +660,19 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   listen($("reset-tuning"), "click", () => mutate(() => api.apply({ reset: "wallpaper" }), "已重置壁纸调节"));
   listen($("center-position"), "click", () => mutate(() => api.apply({ positionX: 50, positionY: 50 }), "图片已居中"));
   listen($("clear-overlay"), "click", () => mutate(() => api.apply({ clearOverlay: true }), "已清除遮罩"));
+  listen($("palette-clear"), "click", () => mutate(() => api.apply({ palette: null }), "已恢复主题配色"));
+  listen($("reset-regions"), "click", () => mutate(() => api.apply({ unset: Object.keys(knobs).filter((key) => regionOf(key as Knob)).map((key) => inputKey(key as Knob)) }), "各区域已跟随整体"));
+  const setMode = (advanced: boolean) => {
+    prefs.advanced = advanced; savePreferences(); applyMode(); position();
+    $("status").textContent = advanced ? "已显示全部调节" : "只显示常用调节 · 已有设置保持不变";
+  };
+  listen($("mode-simple"), "click", () => setMode(false));
+  listen($("mode-advanced"), "click", () => setMode(true));
   listen($("theme-details"), "toggle", position);
+  listen($("region-details"), "toggle", position);
   listen($("wallpaper-details"), "toggle", position);
   listen(window, "resize", () => { menu.hidden = true; position(); updateHints(); });
-  listen(window, "storage", (event) => { if ((event as StorageEvent).key === PREF_KEY) { readPreferences(); position(); } });
+  listen(window, "storage", (event) => { if ((event as StorageEvent).key === PREF_KEY) { readPreferences(); applyMode(); position(); } });
   listen(document, "pointerdown", (event) => {
     if (draggingSlider || entryDrag || event.composedPath().includes(host)) return;
     dismiss(false);
@@ -540,7 +713,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
       else if (!e.shiftKey && root.activeElement === last) { e.preventDefault(); first?.focus(); }
     }
   });
-  readPreferences(); position();
+  readPreferences(); applyMode(); position();
   const shortcut = navigator.platform.toLowerCase().includes("mac") ? "⌘⌥⇧O" : "Ctrl+Alt+Shift+O";
   entry.title = `外观 · ${shortcut}\n拖动调整位置，右键隐藏或重置`;
   listen(window, "pagehide", () => { api.clearPreview(); host.remove(); });

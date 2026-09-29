@@ -108,6 +108,27 @@ test("diagnosis explains controls whose effect is hidden instead of leaving them
   assert.match(diagnose(state({ wallpaper: null, transparency: 0 })).hints.primary!, /界面模糊才生效/);
 });
 
+test("region controls map to their requests and say when layering hides their effect", () => {
+  assert.equal(inputKey("frameTransparency"), "frameOpacity");
+  assert.equal(inputKey("mainBlur"), "mainBlur");
+  assert.equal(formatKnob("cardTransparency", 35), "35%");
+  assert.deepEqual(parseKnobInput("inputTransparency", "40"), { value: 40, clamped: false });
+
+  const opaqueFrame = diagnose(state({ regions: { frame: 0, main: 40, card: 40, input: 40 } }));
+  assert.match(opaqueFrame.hints.region!, /侧栏是整个窗口的底层/);
+  assert.match(opaqueFrame.hints.primary!, /侧栏不透明，壁纸被遮住/);
+  assert.equal(opaqueFrame.disabled.glassBlur, undefined, "other regions are still translucent");
+
+  const capped = diagnose(state({ regions: { frame: 20, main: 80, card: 40, input: 40 } }));
+  assert.match(capped.hints.region!, /最多和侧栏一样透明/);
+  assert.equal(diagnose(state({ regions: { frame: 60, main: 40, card: 40, input: 40 } })).hints.region, null);
+
+  const opaqueInput = diagnose(state({ regions: { frame: 40, main: 40, card: 40, input: 0 } }));
+  assert.ok(opaqueInput.disabled.inputBlur);
+  assert.equal(opaqueInput.disabled.mainBlur, undefined);
+  assert.ok(diagnose(state({ regions: { frame: 0, main: 0, card: 0, input: 0 } })).disabled.glassBlur);
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
