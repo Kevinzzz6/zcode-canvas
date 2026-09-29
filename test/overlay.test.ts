@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPreviewController } from "../src/runtime/preview-controller.ts";
-import { formatKnob, positionValue } from "../src/runtime/overlay-preview.ts";
+import { diagnose, formatKnob, positionSlack, positionValue, type DiagnosisInput } from "../src/runtime/overlay-preview.ts";
+import type { ResolvedWallpaper } from "../src/shared/look.ts";
 import { isMainWindowUrl } from "../src/shared/window.ts";
 
 const mainUrl = "file:///C:/ZCode/resources/app/out/renderer/index.html";
@@ -31,6 +32,48 @@ test("position controls preserve CSS keyword axis semantics", () => {
     assert.equal(positionValue(value, 0), x);
     assert.equal(positionValue(value, 1), y);
   }
+});
+
+const wallpaper: ResolvedWallpaper = { image: "/w/a.jpg", fit: "cover", position: "center", blur: 0, dim: 0, overlay: null, scale: 1, saturate: 1, brightness: 1, contrast: 1, grayscale: 0 };
+const wide = { width: 1600, height: 900 };
+const state = (patch: Partial<DiagnosisInput> = {}): DiagnosisInput =>
+  ({ wallpaper, transparency: 40, fit: "cover", scale: 1, blur: 0, image: wide, viewport: { width: 1200, height: 800 }, ...patch });
+
+test("position slack follows how the fit crops the image in this window", () => {
+  const viewport = { width: 1200, height: 800 };
+  assert.deepEqual(positionSlack("cover", 1, 0, wide, viewport), { x: true, y: false }, "a wide image is cropped left/right only");
+  assert.deepEqual(positionSlack("contain", 1, 0, wide, viewport), { x: false, y: true }, "letterboxed top/bottom");
+  assert.deepEqual(positionSlack("cover", 1, 0, { width: 600, height: 400 }, viewport), { x: false, y: false }, "same aspect ratio");
+  assert.deepEqual(positionSlack("fill", 1, 0, wide, viewport), { x: false, y: false });
+  assert.deepEqual(positionSlack("fill", 1.5, 0, wide, viewport), { x: true, y: true }, "a zoom anchors at the position");
+  assert.deepEqual(positionSlack("tile", 1, 0, null, viewport), { x: true, y: true });
+  assert.equal(positionSlack("cover", 1, 0, null, viewport), null, "unknown size claims nothing");
+  assert.deepEqual(positionSlack("center", 1, 0, { width: 1200, height: 400 }, viewport), { x: false, y: true });
+});
+
+test("diagnosis explains controls whose effect is hidden instead of leaving them silent", () => {
+  const clear = diagnose(state());
+  assert.deepEqual(clear.disabled, {});
+  assert.equal(clear.hints.primary, null);
+  assert.match(clear.hints.wallpaper!, /垂直位置不会变化/);
+
+  const opaque = diagnose(state({ transparency: 0 }));
+  assert.ok(opaque.disabled.glassBlur, "glass blur is only emitted for translucent surfaces");
+  assert.match(opaque.hints.primary!, /壁纸被遮住.*界面透明/);
+  assert.match(opaque.hints.wallpaper!, /遮住/);
+  assert.match(opaque.hints.material!, /不透明/);
+
+  const bare = diagnose(state({ wallpaper: null }));
+  assert.ok(bare.disabled.brightness && bare.disabled.blur && bare.disabled.positionX);
+  assert.equal(bare.disabled.transparency, undefined);
+  assert.match(bare.hints.wallpaper!, /先在上方选择/);
+  assert.equal(bare.hints.material, null, "nothing covers the material");
+
+  const fill = diagnose(state({ fit: "fill" }));
+  assert.ok(fill.disabled.positionX && fill.disabled.positionY);
+  assert.equal(diagnose(state({ fit: "fill", scale: 1.2 })).disabled.positionX, undefined);
+  assert.match(diagnose(state({ image: { width: 600, height: 400 } })).hints.wallpaper!, /正好铺满/);
+  assert.match(diagnose(state({ wallpaper: null, transparency: 0 })).hints.primary!, /界面模糊才生效/);
 });
 
 function deferred<T>() {

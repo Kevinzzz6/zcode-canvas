@@ -1,6 +1,7 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
-import { formatKnob, knobValue, knobs, type Knob } from "./overlay-preview.ts";
+import { diagnose, formatKnob, knobValue, knobs, type Knob, type Size } from "./overlay-preview.ts";
+import type { WallpaperFit } from "../shared/look.ts";
 
 export interface OverlayApi {
   get(): Promise<PanelData>;
@@ -15,6 +16,7 @@ export interface OverlayApi {
 const PREF_KEY = "zcode-canvas:entry:v1";
 type Preferences = { hidden: boolean; side: "left" | "right"; y: number | null; seen: boolean };
 const defaults = (): Preferences => ({ hidden: false, side: "right", y: null, seen: false });
+const POSITION_HINT = "位置按图片和窗口的剩余空间对齐；填满时会调整裁切。";
 const paletteIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.5-3.3 1.5 1.5 0 0 1 1.1-2.5H18A3 3 0 0 0 21 12a9 9 0 0 0-9-9Z"/><circle cx="7.5" cy="10" r=".8"/><circle cx="11" cy="6.8" r=".8"/><circle cx="15.5" cy="8" r=".8"/></svg>';
 
 function pickerColor(value: unknown): string | null {
@@ -53,16 +55,17 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
         <div class="label wallpaper-heading">我的壁纸<small id="count"></small><span class="spacer"></span><button id="pick" class="text-button">＋ 添加图片</button></div>
         <div class="library" id="library" aria-label="壁纸库"></div>
         <div class="current"><span id="current"></span><button id="clear" class="text-button" title="清除个人壁纸覆盖，恢复主题自带壁纸">恢复主题壁纸</button></div>
-        <div class="tuning"><div class="label compact">常用调节</div><div id="primary-knobs"></div>
+        <div class="tuning"><div class="label compact">常用调节</div><div id="primary-knobs"></div><div id="primary-hint" class="hint notice" role="note" hidden></div>
           <div id="overlay-notice" class="overlay-notice" hidden>旧遮罩正在生效 <button id="clear-overlay" class="text-button">清除遮罩</button></div>
           <details id="theme-details"><summary>主题细节<span id="theme-detail-custom" class="custom-tag" hidden>已自定义</span></summary><div id="theme-knobs"></div>
             <label class="select-row">强调色<span class="spacer"></span><small id="accent-current" class="accent-current"></small><input type="color" id="accent" aria-label="强调色"></label>
             <label class="select-row" id="material-row">原生材质<select id="material" aria-label="原生材质"><option value="none">无</option><option value="acrylic">亚克力</option><option value="mica">云母</option><option value="tabbed">标签云母</option></select></label>
+            <div id="material-hint" class="hint" role="note" hidden></div>
             <button id="reset-theme" class="text-button" title="恢复主题默认外观，保留当前壁纸">恢复主题默认</button>
           </details>
           <details id="wallpaper-details"><summary>壁纸细节<span id="wallpaper-custom" class="custom-tag" hidden>已自定义</span></summary><div id="wallpaper-knobs"></div>
             <label class="select-row">铺放方式<select id="fit" aria-label="铺放方式"><option value="cover">填满</option><option value="contain">适应</option><option value="fill">拉伸</option><option value="center">居中</option><option value="tile">平铺</option></select></label>
-            <div class="hint">位置按图片和窗口的剩余空间对齐；填满时会调整裁切。</div>
+            <div id="wallpaper-hint" class="hint" role="note"></div>
             <button id="center-position" class="text-button" title="将水平和垂直位置恢复到 50%">居中图片</button>
             <button id="reset-tuning" class="text-button">重置壁纸调节</button>
           </details>
@@ -90,6 +93,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   let librarySignature = "";
   const frozen = new Map<string, string>();
   let transient = "";
+  const values = {} as Record<Knob, number>;
+  /** Natural image sizes by URL; null = unmeasurable (e.g. an SVG without intrinsic size). */
+  const imageSizes = new Map<string, Size | null>();
   const report = (error: unknown) => {
     api.log(String(error));
     $("status").textContent = "暂时无法完成操作，请重试";
@@ -163,7 +169,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     panel.setAttribute("aria-busy", String(value));
     for (const control of root.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(".content button,.content input,.content select")) control.disabled = value;
   }
-  async function mutate(action: () => Promise<unknown>, message: string) {
+  async function mutate(action: () => Promise<unknown>, message: string | ((data: PanelData) => string)) {
     if (busy) return;
     ++revision;
     setBusy(true);
@@ -173,7 +179,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
       const result = await action();
       committed = true;
       data = await api.get();
-      transient = result && typeof result === "object" && "canceled" in result && result.canceled ? "已取消选择" : message;
+      transient = result && typeof result === "object" && "canceled" in result && result.canceled ? "已取消选择"
+        : typeof message === "function" ? message(data) : message;
     } catch (error) {
       transient = committed ? "已应用，列表暂时无法刷新" : "未能应用，已恢复已保存的外观";
       api.log(String(error));
@@ -199,11 +206,47 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     input.value = String(value);
     input.style.setProperty("--fill", `${100 * (value - spec.min) / (spec.max - spec.min)}%`);
     $(`${key}-value`).textContent = formatKnob(key, value);
+    values[key] = value;
+  }
+  function measure(url: string | null | undefined): Size | null {
+    if (!url) return null;
+    if (imageSizes.has(url)) return imageSizes.get(url)!;
+    imageSizes.set(url, null);
+    const probe = new Image();
+    probe.decoding = "async";
+    probe.onload = () => {
+      imageSizes.set(url, probe.naturalWidth > 0 && probe.naturalHeight > 0 ? { width: probe.naturalWidth, height: probe.naturalHeight } : null);
+      probe.removeAttribute("src");
+      safe(updateHints)();
+    };
+    probe.onerror = () => probe.removeAttribute("src");
+    probe.src = url;
+    return null;
+  }
+  /** Disable controls that cannot work right now and say why, right next to them. */
+  function updateHints() {
+    if (!data || busy) return;
+    const off = data.config.enabled === false;
+    const wallpaper = data.effective.wallpaper[mode()];
+    const { disabled, hints } = diagnose({
+      wallpaper, transparency: values.transparency, fit: $<HTMLSelectElement>("fit").value as WallpaperFit,
+      scale: values.scale, blur: values.blur, image: measure(data.imageUrl?.[mode()]),
+      viewport: { width: innerWidth, height: innerHeight },
+    });
+    for (const key of Object.keys(knobs) as Knob[]) {
+      const reason = disabled[key];
+      $<HTMLInputElement>(key).disabled = off || reason !== undefined;
+      $(`${key}-row`).title = reason ?? "";
+    }
+    const show = (id: string, text: string | null) => { $(id).textContent = text ?? ""; $(id).hidden = !text; };
+    show("primary-hint", hints.primary);
+    show("material-hint", data.platform === "win32" ? hints.material : null);
+    show("wallpaper-hint", hints.wallpaper ?? POSITION_HINT);
   }
   for (const key of Object.keys(knobs) as Knob[]) {
     const spec = knobs[key];
     const row = document.createElement("label");
-    row.className = "knob";
+    row.className = "knob"; row.id = `${key}-row`;
     const label = document.createElement("span");
     label.textContent = spec.label;
     const input = document.createElement("input");
@@ -226,6 +269,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
       else (pending as Record<string, unknown>)[key] = value;
       activeSlider = input;
       updateKnob(key, value);
+      if (key === "transparency" || key === "scale" || key === "blur") updateHints();
       if (data && data.config.enabled !== false) void api.preview({ ...pending }).catch(report);
     });
     listen(input, "change", commitPending);
@@ -286,7 +330,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
         listen(img, "error", () => { img.remove(); const text = document.createElement("span"); text.className = "broken"; text.textContent = "预览不可用"; button.append(text); });
         img.src = frozen.get(item.url) ?? item.url;
         button.append(img);
-        listen(button, "click", () => mutate(() => api.selectWallpaper(item.id), "已换上壁纸 · 所有窗口同步"));
+        listen(button, "click", () => mutate(() => api.selectWallpaper(item.id), (next) =>
+          next.effective.glass.opacity >= 1 ? "已换上壁纸 · 界面不透明，调高「界面透明」后可见" : "已换上壁纸 · 所有窗口同步"));
         library.append(button);
       }
       if (!data.wallpapers.length) {
@@ -301,11 +346,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     $("current").textContent = current; $("current").title = current;
     $<HTMLButtonElement>("clear").hidden = !data.config.wallpaper;
     const wallpaper = data.effective.wallpaper[mode()];
-    for (const key of Object.keys(knobs) as Knob[]) {
-      updateKnob(key, knobValue(data.effective, wallpaper, key));
-      $<HTMLInputElement>(key).disabled = (knobs[key].group === "wallpaper" || key === "brightness") && !wallpaper || data.config.enabled === false;
-    }
+    for (const key of Object.keys(knobs) as Knob[]) updateKnob(key, knobValue(data.effective, wallpaper, key));
     $<HTMLSelectElement>("fit").value = wallpaper?.fit ?? "cover";
+    updateHints();
     $<HTMLSelectElement>("fit").disabled = !wallpaper || data.config.enabled === false;
     $("theme-custom").hidden = !data.overrides?.theme;
     $("theme-detail-custom").hidden = !data.overrides?.theme;
@@ -372,7 +415,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   listen(entry, "pointerup", endDrag); listen(entry, "pointercancel", endDrag);
   listen($("options"), "click", () => showMenu($("options")));
   listen($("close"), "click", () => dismiss(true));
-  listen($("pick"), "click", () => mutate(() => api.pickWallpaper(), "壁纸库已更新"));
+  listen($("pick"), "click", () => mutate(() => api.pickWallpaper(), (next) =>
+    next.effective.glass.opacity >= 1 ? "壁纸库已更新 · 界面不透明，调高「界面透明」后可见" : "壁纸库已更新"));
   listen($("clear"), "click", () => mutate(() => api.apply({ wallpaper: null }), "已恢复主题壁纸"));
   listen($("fit"), "change", () => mutate(() => api.apply({ fit: $<HTMLSelectElement>("fit").value }), "已更新铺放方式"));
   listen($("accent"), "change", () => {
@@ -386,7 +430,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   listen($("clear-overlay"), "click", () => mutate(() => api.apply({ clearOverlay: true }), "已清除遮罩"));
   listen($("theme-details"), "toggle", position);
   listen($("wallpaper-details"), "toggle", position);
-  listen(window, "resize", () => { menu.hidden = true; position(); });
+  listen(window, "resize", () => { menu.hidden = true; position(); updateHints(); });
   listen(window, "storage", (event) => { if ((event as StorageEvent).key === PREF_KEY) { readPreferences(); position(); } });
   listen(document, "pointerdown", (event) => {
     if (draggingSlider || entryDrag || event.composedPath().includes(host)) return;
