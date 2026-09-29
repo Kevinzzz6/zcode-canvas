@@ -4,6 +4,14 @@
   "description": "Themes, wallpapers, glass and startup visuals for the official ZCode Desktop release.",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kevinzzz6/zcode-canvas.git"
+  },
+  "author": "Kevinzzz6",
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "zcode-canvas": "dist/cli.js"
   },
