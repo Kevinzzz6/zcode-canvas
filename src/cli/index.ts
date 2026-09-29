@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { themeSchemaProblems } from "./schema.ts";
 import { importWallpaper } from "./wallpaper.ts";
 import { buildCss } from "../shared/css.ts";
+import { isPaletteColor, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
 import {
   canvasHome,
   checkManifest,
@@ -71,6 +72,9 @@ function helpText(): string {
   colors.dark.<token>         暗色 token，如 colors.dark.sidebar "#101418"
   colors.light.<token>        亮色 token
   radius                      圆角倍数，1 = 官方，0 = 全直角
+  palette.seed                智能配色的种子色 #rrggbb，由它生成整套颜色 token
+  palette.variant             ${PALETTE_VARIANTS.join(" | ")}（默认 natural）
+  palette.backdrop            壁纸平均色 #rrggbb，用于检查透明表面上的文字对比度
   vars.<--属性>               其他 CSS 自定义属性（也可 vars.dark.<--属性> / vars.light.<--属性>）
   wallpaper.image             图片路径 (png/jpg/webp/avif/gif/svg)
   wallpaper.fit               ${WALLPAPER_FITS.join(" | ")}
@@ -88,6 +92,8 @@ function helpText(): string {
                              毛玻璃，none 关闭；Linux 忽略此项，透明度由窗口本身决定）
   glass.opacity               界面表面不透明度 0~1，1 = 官方外观
   glass.blur                  主内容区背景模糊 px
+  glass.regions.<区域>.opacity 单个区域的不透明度 0~1，区域: frame（窗口与侧栏）| main | card | input
+  glass.regions.<区域>.blur    单个区域的背景模糊 px（frame 不支持）；没设置的区域跟随 glass.opacity / glass.blur
   startup.background          启动画面背景（颜色或渐变）
   startup.logo                启动 logo 图片路径
   startup.logoSize            启动 logo 尺寸 px
@@ -125,12 +131,16 @@ function writeConfig(config: CanvasConfig) {
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|startup\.(background|logo|logoSize|animation))$/;
-const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|startup)$/;
+const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|palette\.(seed|variant|backdrop)|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|glass\.regions\.(frame\.opacity|(main|card|input)\.(opacity|blur))|startup\.(background|logo|logoSize|animation))$/;
+const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|palette|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|glass\.regions|glass\.regions\.(frame|main|card|input)|startup)$/;
 
 function parseValue(key: string, raw: string): unknown {
   // Colors and custom property values are CSS text; "0" must stay a string rather than become a number.
-  if (/^(colors|vars|accent)\./.test(key) || key === "accent") return raw;
+  if (/^(colors|vars|accent|palette)\./.test(key) || key === "accent") {
+    if (/^palette\.(seed|backdrop)$/.test(key) && !isPaletteColor(raw)) throw new Error(`${key} 需要 #rrggbb 形式的颜色，如 #5eead4`);
+    if (key === "palette.variant" && !PALETTE_VARIANTS.includes(raw as PaletteVariant)) throw new Error(`palette.variant 只能是 ${PALETTE_VARIANTS.join(" | ")}`);
+    return raw;
+  }
   if (FILE_KEYS.has(key)) {
     const file = isAbsolute(raw) ? raw : resolve(process.cwd(), raw);
     if (!existsSync(file)) throw new Error(`文件不存在: ${file}`);
@@ -269,7 +279,7 @@ function newTheme(id: string | undefined) {
   mkdirSync(dir, { recursive: true });
   const config = readConfig(home);
   const manifest: ThemeManifest = { $schema: SCHEMA_URL, format: FORMAT_VERSION, name: id };
-  for (const key of ["colors", "accent", "radius", "vars", "glass"] as const) if (config[key] !== undefined) Object.assign(manifest, { [key]: config[key] });
+  for (const key of ["colors", "accent", "radius", "palette", "vars", "glass"] as const) if (config[key] !== undefined) Object.assign(manifest, { [key]: config[key] });
   const copyInto = (file: string | null | undefined, name: string) => {
     if (!file || !existsSync(file)) return file;
     const target = `${name}${extname(file)}`;
