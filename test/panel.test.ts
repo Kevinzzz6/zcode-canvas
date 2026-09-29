@@ -4,12 +4,13 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFi
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test, type TestContext } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadLook, readConfig, writeConfigAtomic, type CanvasConfig } from "../src/shared/look.ts";
-import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER } from "../src/shared/protocol.ts";
+import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER } from "../src/shared/protocol.ts";
 import {
   applyPanelInput,
   importWallpaperFile,
+  listStoredWallpapers,
   readPanelData,
   registerPanelHandlers,
   storedWallpaperPath,
@@ -44,12 +45,13 @@ test("readPanelData lists built-in and user themes and reports the current wallp
   assert.deepEqual(
     data.themes,
     [
-      { id: "builtinwp", name: "Builtin WP", builtin: true },
-      { id: "mine", name: "Mine", builtin: false },
+      { id: "builtinwp", name: "Builtin WP", builtin: true, swatch: { background: "#202534", accent: "#8b7cf5" } },
+      { id: "mine", name: "Mine", builtin: false, swatch: { background: "#202534", accent: "#123456" } },
     ],
   );
   assert.equal(data.config.theme, "mine");
   assert.equal(data.wallpaper.file, "pic.jpg");
+  assert.equal(data.wallpaper.id, null); // a deleted image is not offered as a selectable library entry
   assert.equal(data.wallpaper.fromTheme, false);
 
   // Without an override, the active theme's own wallpaper is what shows.
@@ -61,6 +63,45 @@ test("readPanelData lists built-in and user themes and reports the current wallp
   assert.equal(readPanelData(home).wallpaper.fromTheme, false);
 });
 
+test("the library lists only usable stored images and marks GIFs as animated", (t: TestContext) => {
+  const home = makeHome();
+  const store = join(home, "imports", "wallpaper");
+  mkdirSync(store, { recursive: true });
+  writeFileSync(join(store, "still.png"), "png");
+  writeFileSync(join(store, "loop.gif"), "gif");
+  writeFileSync(join(store, "skip.exe"), "exe");
+  mkdirSync(join(store, "folder.jpg"));
+  writeFileSync(join(home, "outside.png"), "outside");
+  try {
+    symlinkSync(join(home, "outside.png"), join(store, "escape.png"));
+  } catch (error) {
+    t.diagnostic(`symlink check unavailable: ${String(error)}`);
+  }
+  const files = listStoredWallpapers(home);
+  assert.deepEqual(files.map(({ id, animated }) => ({ id, animated })), [
+    { id: "loop.gif", animated: true },
+    { id: "still.png", animated: false },
+  ]);
+  assert.equal(files[0]?.url, pathToFileURL(join(store, "loop.gif")).href);
+});
+
+test("swatches reject unsafe CSS and effective values inherit theme tuning", () => {
+  const home = makeHome();
+  writeFileSync(join(home, "runtime", "themes", "builtinwp", "theme.json"), JSON.stringify({
+    name: "Builtin WP",
+    colors: { dark: { background: "url(file:///secret)", primary: "#31a6bb" } },
+    accent: "url(file:///secret)",
+    wallpaper: { image: "bg.png", blur: 13, dim: 0.42, scale: 1.4 },
+  }));
+  writeConfigAtomic(home, { theme: "builtinwp", wallpaper: { dim: 0.55 } });
+  const data = readPanelData(home);
+  assert.deepEqual(data.themes[0]?.swatch, { background: "#202534", accent: "#31a6bb" });
+  assert.equal(data.effective.wallpaper.dark?.blur, 13);
+  assert.equal(data.effective.wallpaper.dark?.dim, 0.55);
+  assert.equal(data.effective.wallpaper.dark?.scale, 1.4);
+  assert.equal(data.config.wallpaper?.blur, undefined);
+});
+
 test("picking a theme only changes config.theme and never clears the wallpaper override", () => {
   const home = makeHome();
   const before: CanvasConfig = { theme: "mine", wallpaper: { image: "/w/pic.jpg", dim: 0.4 }, accent: "#7c5cff" };
@@ -69,6 +110,14 @@ test("picking a theme only changes config.theme and never clears the wallpaper o
   assert.equal(after.wallpaper?.image, "/w/pic.jpg");
   assert.equal(after.wallpaper?.dim, 0.4);
   assert.equal(after.accent, "#7c5cff");
+});
+
+test("relative wallpaper paths resolve against Canvas home for the selected library tile", () => {
+  const home = makeHome();
+  mkdirSync(join(home, "imports", "wallpaper"), { recursive: true });
+  writeFileSync(join(home, "imports", "wallpaper", "relative.png"), "png");
+  writeConfigAtomic(home, { wallpaper: { image: "imports/wallpaper/relative.png" } });
+  assert.equal(readPanelData(home).wallpaper.id, "relative.png");
 });
 
 test("clearing the theme keeps the user's own wallpaper", () => {
@@ -269,11 +318,48 @@ test("the pick handler stores the chosen file as wallpaper.image and keeps the t
   assert.equal(canceling.reloads.length, 0);
 });
 
+test("selecting a stored wallpaper preserves theme and tuning while refusing paths and symlinks", async (t: TestContext) => {
+  const home = makeHome();
+  const store = join(home, "imports", "wallpaper");
+  mkdirSync(store, { recursive: true });
+  writeFileSync(join(store, "first.png"), "first");
+  writeFileSync(join(store, "second.gif"), "second");
+  writeFileSync(join(store, "unsupported.exe"), "exe");
+  writeFileSync(join(home, "outside.png"), "outside");
+  writeConfigAtomic(home, { theme: "mine", wallpaper: { image: join(store, "first.png"), dim: 0.37, blur: 9 } });
+  const { listeners, reloads, logged } = harness(home, async () => null);
+  assert.deepEqual(await listeners.get(CHANNEL_PANEL_SELECT_WALLPAPER)!(undefined, "second.gif"), { ok: true });
+  assert.deepEqual(readConfig(home).wallpaper, { image: join(store, "second.gif"), dim: 0.37, blur: 9 });
+  assert.equal(readConfig(home).theme, "mine");
+  assert.equal(readPanelData(home).wallpaper.id, "second.gif");
+  assert.equal(reloads.length, 1);
+  const bad = ["../outside.png", "..\\outside.png", join(home, "outside.png"), "unsupported.exe", "missing.png", { id: "first.png" }];
+  for (const value of bad) await assert.rejects(async () => listeners.get(CHANNEL_PANEL_SELECT_WALLPAPER)!(undefined, value));
+  try {
+    symlinkSync(join(home, "outside.png"), join(store, "escape.png"));
+    await assert.rejects(async () => listeners.get(CHANNEL_PANEL_SELECT_WALLPAPER)!(undefined, "escape.png"), /escapes the store/);
+  } catch (error) {
+    if (String(error).includes("EPERM")) t.diagnostic("symlink check unavailable");
+    else throw error;
+  }
+  assert.equal(readConfig(home).wallpaper?.image, join(store, "second.gif"));
+  assert.equal(reloads.length, 1);
+  assert.ok(logged.length >= bad.length, "rejected requests are logged before returning errors");
+});
+
+test("an asynchronous picker failure is logged before the IPC request rejects", async () => {
+  const home = makeHome();
+  const { listeners, logged, reloads } = harness(home, async () => { throw new Error("picker unavailable"); });
+  await assert.rejects(async () => listeners.get(CHANNEL_PANEL_PICK_WALLPAPER)!(undefined), /picker unavailable/);
+  assert.match(logged[0]!, /panel-pick-wallpaper failed: Error: picker unavailable/);
+  assert.equal(reloads.length, 0);
+});
+
 test("requests that do not come from the panel window are refused and change nothing", async () => {
   const home = makeHome();
   withWallpaperOverride(home);
   const stranger = harness(home, async () => null, () => false);
-  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER]) {
+  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER]) {
     await assert.rejects(
       async () => {
         await stranger.listeners.get(channel)!({ sender: { id: 1 } });

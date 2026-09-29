@@ -5,10 +5,12 @@
 // native dialog overrides only the theme's wallpaper. Clearing the wallpaper removes the override,
 // so the theme's own wallpaper shows again; clearing the theme never touches the wallpaper.
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, extname, resolve, sep } from "node:path";
-import { listThemes, readConfig, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type ThemeManifest, type WallpaperFit } from "../shared/look.ts";
-import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER } from "../shared/protocol.ts";
+import { pathToFileURL } from "node:url";
+import { isSafeCssValue } from "../shared/css.ts";
+import { listThemes, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type ResolvedLook, type ThemeManifest, type WallpaperFit } from "../shared/look.ts";
+import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
 
 /** Image formats the panel accepts; a gif plays its animation in the CSS background. Anything
  *  executable stays out of scope. */
@@ -18,13 +20,24 @@ export interface PanelThemeInfo {
   id: string;
   name: string;
   builtin: boolean;
+  swatch: { background: string; accent: string };
+}
+
+export interface PanelWallpaperInfo {
+  /** Flat file name in the Canvas import store, never a renderer-supplied filesystem path. */
+  id: string;
+  name: string;
+  url: string;
+  animated: boolean;
 }
 
 export interface PanelData {
   config: CanvasConfig;
   themes: PanelThemeInfo[];
+  wallpapers: PanelWallpaperInfo[];
+  effective: ResolvedLook;
   /** The user's own wallpaper override (file name only), and whether the theme ships one instead. */
-  wallpaper: { file: string | null; fromTheme: boolean };
+  wallpaper: { id: string | null; file: string | null; fromTheme: boolean };
 }
 
 function themeHasWallpaper(manifest: ThemeManifest): boolean {
@@ -32,9 +45,56 @@ function themeHasWallpaper(manifest: ThemeManifest): boolean {
   return !!wallpaper && !!(wallpaper.image || wallpaper.dark?.image || wallpaper.light?.image);
 }
 
+function safeSwatchColor(value: unknown): string | null {
+  return typeof value === "string" && value.trim() && isSafeCssValue(value, "color") ? value : null;
+}
+
+function themeSwatch(manifest: ThemeManifest): PanelThemeInfo["swatch"] {
+  const dark = manifest.colors?.dark ?? {};
+  const light = manifest.colors?.light ?? {};
+  const background = safeSwatchColor(dark.background) ?? safeSwatchColor(dark["background-win-alt"])
+    ?? safeSwatchColor(light.background) ?? "#202534";
+  const accent = safeSwatchColor(typeof manifest.accent === "string" ? manifest.accent : manifest.accent?.dark)
+    ?? safeSwatchColor(dark.primary) ?? safeSwatchColor(dark.brand)
+    ?? safeSwatchColor(typeof manifest.accent === "object" && manifest.accent ? manifest.accent.light : null)
+    ?? "#8b7cf5";
+  return { background, accent };
+}
+
+/** Ignore unsupported files, directories and symlinks escaping the import store. */
+export function listStoredWallpapers(home: string): PanelWallpaperInfo[] {
+  const root = resolve(home, "imports", "wallpaper");
+  if (!existsSync(root)) return [];
+  const wallpapers: PanelWallpaperInfo[] = [];
+  for (const id of readdirSync(root)) {
+    try {
+      if (!WALLPAPER_EXTENSIONS.includes(extname(id).toLowerCase())) continue;
+      const file = storedWallpaperPath(home, id);
+      if (!statSync(file).isFile()) continue;
+      wallpapers.push({ id, name: wallpaperDisplayName(id), url: pathToFileURL(file).href, animated: extname(id).toLowerCase() === ".gif" });
+    } catch {
+      // A malformed entry or hostile symlink must not hide the rest of the library.
+    }
+  }
+  return wallpapers.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+function selectedStoredWallpaperId(home: string, image: unknown): string | null {
+  if (typeof image !== "string") return null;
+  const id = basename(image);
+  try {
+    const file = resolve(home, image);
+    return storedWallpaperPath(home, id) === file && statSync(file).isFile() ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export function readPanelData(home: string): PanelData {
   const config = readConfig(home);
   const themes = listThemes(home);
+  const wallpapers = listStoredWallpapers(home);
+  const id = selectedStoredWallpaperId(home, config.wallpaper?.image);
   const file =
     typeof config.wallpaper?.image === "string" && config.wallpaper.image
       ? wallpaperDisplayName(basename(config.wallpaper.image))
@@ -44,8 +104,10 @@ export function readPanelData(home: string): PanelData {
   const fromTheme = !file && config.wallpaper !== null && active !== undefined && themeHasWallpaper(active.manifest);
   return {
     config,
-    themes: themes.map(({ id, manifest, builtin }) => ({ id, name: manifest.name, builtin })),
-    wallpaper: { file, fromTheme },
+    themes: themes.map(({ id, manifest, builtin }) => ({ id, name: manifest.name, builtin, swatch: themeSwatch(manifest) })),
+    wallpapers,
+    effective: resolveLook(config, active ?? null, home),
+    wallpaper: { id: id && wallpapers.some((entry) => entry.id === id) ? id : null, file, fromTheme },
   };
 }
 
@@ -181,25 +243,26 @@ export interface PanelHandlersDeps {
   /** Opens the native picker in the main process; resolves null when the user cancels. */
   pickWallpaperFile: () => Promise<string | null>;
   reload: () => void;
-  /** True when a request comes from the panel window's own webContents; everything else is refused.
-   *  ipcMain handlers are process-wide, so without this any page in ZCode could drive the panel. */
+  /** True for an explicitly verified panel or main-renderer sender; ipcMain handlers are process-wide. */
   isPanelSender: (event: unknown) => boolean;
 }
 
 /**
- * Registers the three panel channels. Each registration is guarded on its own: a channel that
+ * Registers the panel channels. Each registration is guarded on its own: a channel that
  * cannot be registered (or a handler that fails on a request) is logged and skipped — the base
  * theming runtime keeps running either way.
  */
 export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reload, isPanelSender }: PanelHandlersDeps): void {
   const register = (channel: string, listener: (event: unknown, value?: unknown) => unknown): void => {
     try {
-      ipc.handle(channel, (event, value) => {
-        if (!isPanelSender(event)) {
-          log(`panel ${channel}: refused a request that did not come from the panel window`);
-          throw new Error("refused: sender is not the appearance panel");
+      ipc.handle(channel, async (event, value) => {
+        try {
+          if (!isPanelSender(event)) throw new Error("refused: sender is not an authorized appearance panel caller");
+          return await listener(event, value);
+        } catch (error) {
+          log(`panel ${channel} failed: ${String(error)}`);
+          throw error;
         }
-        return listener(event, value);
       });
     } catch (error) {
       log(`panel ${channel} unavailable: ${String(error)}`);
@@ -224,5 +287,17 @@ export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reloa
     writeConfigAtomic(home, config);
     reload();
     return { canceled: false, file: wallpaperDisplayName(basename(destination)) };
+  });
+
+  register(CHANNEL_PANEL_SELECT_WALLPAPER, (_event, value) => {
+    if (typeof value !== "string" || !WALLPAPER_EXTENSIONS.includes(extname(value).toLowerCase()))
+      throw new Error("invalid stored wallpaper id");
+    const file = storedWallpaperPath(home, value);
+    if (!statSync(file).isFile()) throw new Error("stored wallpaper is not a file");
+    const config = readConfig(home);
+    config.wallpaper = { ...(config.wallpaper ?? {}), image: file };
+    writeConfigAtomic(home, config);
+    reload();
+    return { ok: true };
   });
 }
