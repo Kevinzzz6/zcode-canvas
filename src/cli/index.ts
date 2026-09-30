@@ -264,9 +264,10 @@ function set(key: string | undefined, raw: string | undefined, remove = false) {
   if (!key || (!remove && raw === undefined)) throw new Error(remove ? "用法: zcode-canvas unset <键>" : "用法: zcode-canvas set <键> <值>");
   if (!ALLOWED_KEY.test(key) && !(remove && UNSETTABLE_GROUP.test(key))) throw new Error(`未知的键 "${key}"，运行 \`zcode-canvas help\` 查看可设置的键。`);
   const config = readConfig(home) as Record<string, unknown>;
-  setPath(config, key, remove ? undefined : parseValue(key, raw!));
+  const value = remove ? undefined : parseValue(key, raw!);
+  setPath(config, key, value);
   writeConfig(config as CanvasConfig);
-  console.log(remove ? `✓ 已删除 ${key}` : `✓ ${key} = ${JSON.stringify(parseValue(key, raw!))}`);
+  console.log(remove ? `✓ 已删除 ${key}` : `✓ ${key} = ${JSON.stringify(value)}`);
 }
 
 function newTheme(id: string | undefined) {
