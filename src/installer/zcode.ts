@@ -153,18 +153,40 @@ function linuxZCodeRunning(exe: string): boolean {
   }
 }
 
-function macZCodeRunning(): boolean {
+/** pgrep -x only proves that *some* ZCode is running — a copy launched straight from a mounted DMG
+ * counts too. ps comm reports each candidate's executable path, so only processes belonging to this
+ * install report "running", mirroring the per-install checks on Windows and Linux. */
+export function macZCodeRunning(exe: string, run: (command: string, args: string[]) => string = runCapture): boolean {
+  let pids: string;
   try {
-    execFileSync("pgrep", ["-x", "ZCode"], { stdio: ["ignore", "pipe", "ignore"] });
-    return true;
+    pids = run("pgrep", ["-x", basename(exe)]);
   } catch {
-    return false;
+    return false; // pgrep exits nonzero when nothing matches
   }
+  let canonical = exe;
+  try {
+    canonical = realpathSync(exe);
+  } catch {
+    // The executable may be gone (uninstalled); the literal path still identifies the install.
+  }
+  for (const pid of pids.trim().split(/\s+/).filter(Boolean)) {
+    try {
+      const comm = run("ps", ["-o", "comm=", "-p", pid]).trim();
+      if (comm === exe || comm === canonical) return true;
+    } catch {
+      continue; // the process may have exited between pgrep and ps
+    }
+  }
+  return false;
+}
+
+function runCapture(command: string, args: string[]): string {
+  return execFileSync(command, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
 }
 
 export function isZCodeRunning(install: Installation): boolean {
   if (process.platform === "linux") return linuxZCodeRunning(install.exe);
-  if (process.platform === "darwin") return macZCodeRunning();
+  if (process.platform === "darwin") return macZCodeRunning(install.exe);
   return windowsZCodeRunning(install.exe);
 }
 

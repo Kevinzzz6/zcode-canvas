@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import {
   applyPatch,
   deployRuntime,
   exeName,
+  macZCodeRunning,
   removePatch,
   ResignError,
   runPendingSwap,
@@ -118,4 +119,41 @@ test("restoreOwnership is a harmless no-op for the platforms it cannot apply to"
   restoreOwnership(home);
   assert.equal(readFileSync(join(home, "config.json"), "utf8"), "{}");
   rmSync(home, { recursive: true, force: true });
+});
+
+test("macZCodeRunning only counts processes whose executable is this install", () => {
+  const exe = "/Applications/ZCode.app/Contents/MacOS/ZCode";
+  const other = "/Users/k/Desktop/ZCode.app/Contents/MacOS/ZCode"; // e.g. a copy left running from a DMG
+  const run = (command: string, args: string[]) => {
+    if (command === "pgrep") return "501 502\n";
+    return args[args.length - 1] === "501" ? `${other}\n` : `${exe}\n`;
+  };
+  assert.equal(macZCodeRunning(exe, run), true);
+});
+
+test("macZCodeRunning reports false when every same-named process is another install", () => {
+  const run = (command: string) =>
+    command === "pgrep" ? "501\n" : "/Users/k/Desktop/ZCode.app/Contents/MacOS/ZCode\n";
+  assert.equal(macZCodeRunning("/Applications/ZCode.app/Contents/MacOS/ZCode", run), false);
+});
+
+test("macZCodeRunning reports false when pgrep finds nothing", () => {
+  const run = () => {
+    throw new Error("pgrep: no processes found");
+  };
+  assert.equal(macZCodeRunning("/Applications/ZCode.app/Contents/MacOS/ZCode", run), false);
+});
+
+test("macZCodeRunning survives a process exiting mid-check and matches the canonical path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "zc-exe-"));
+  const exe = join(dir, "ZCode");
+  writeFileSync(exe, "");
+  const canonical = realpathSync(exe);
+  const run = (command: string, args: string[]) => {
+    if (command === "pgrep") return "1 2\n";
+    if (args[args.length - 1] === "1") throw new Error("process gone"); // exited between pgrep and ps
+    return `${canonical}\n`;
+  };
+  assert.equal(macZCodeRunning(exe, run), true);
+  rmSync(dir, { recursive: true, force: true });
 });
