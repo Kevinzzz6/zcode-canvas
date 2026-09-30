@@ -127,6 +127,7 @@ npm install && npm run build && npm link
 - 模糊和缩放滑杆在常用的低值区间更细：拖到轨道一半只对应四分之一的模糊范围，缩放 100% 在轨道约四分之一处。轨道上的细刻度标出主题默认值。方向键按 1px / 1% 步进，按住 Shift 时每次 ×10。
 - 拖动预览只改当前窗口，不写配置。保存失败时会恢复成上一次保存的效果。
 - "恢复主题默认"会删除个人的 `glass`、`accent` 和 `radius` 覆盖，保留壁纸相关的设置。
+- 有个人修改时，面板底部会出现保存条：「另存为」把当前外观存成新主题，「保存」写回当前的用户主题，「丢弃」（点两次）回到主题原样。保存后这些修改就归主题所有，切走再切回来也还在。
 - 快捷键只在 ZCode 主窗口里生效。在 ZCode 里录制快捷键时，Canvas 的快捷键会自动让开。
 - 批量导入等管理操作仍然用命令行完成。
 
@@ -171,7 +172,7 @@ npm install && npm run build && npm link
 | `glass` | 原生毛玻璃 | 保留官方配色，只透出系统原生毛玻璃 |
 | `mica` | Mica | 保留官方配色，改用 Windows 11 Mica 材质（其他平台等同 `glass`） |
 
-想自己做主题，可以先用 `zcode-canvas new my-theme` 把当前设置存成主题，再照 [docs/theme-format.md](docs/theme-format.md) 修改。[schema/theme.schema.json](schema/theme.schema.json) 能让编辑器补全和校验 `theme.json`，`use` 和 `themes` 命令也会按它检查第三方主题。主题格式目前是 format 1，以后只做向后兼容的新增。
+想自己做主题，最快的办法是在外观中心调好后点「另存为」；也可以用 `zcode-canvas new my-theme` 把当前外观（主题加个人设置）存成主题，再照 [docs/theme-format.md](docs/theme-format.md) 修改。[schema/theme.schema.json](schema/theme.schema.json) 能让编辑器补全和校验 `theme.json`，`use` 和 `themes` 命令也会按它检查第三方主题。主题格式目前是 format 1，以后只做向后兼容的新增。
 
 ## 壁纸
 
