@@ -2,6 +2,7 @@ import { statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { BLUR_REGIONS, regionAlphas, type GlassRegion } from "./glass.ts";
 import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
+import { linearLuminance, oklabToLinear, toLinear } from "./palette.ts";
 
 // The contract with ZCode, taken from its source (packages/ui/src/styles.css,
 // packages/ui/src/DesktopWindowFrame.tsx, packages/desktop/src/renderer/index.html):
@@ -104,10 +105,6 @@ function cssUrl(file: string): string {
 /** Percent, rounded to one decimal as the sheet writes it. */
 const percent = (alpha: number) => Math.round(alpha * 1000) / 10;
 
-function srgbToLinear(c: number): number {
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
 /** Arguments of a CSS color function: "rgb(1 2 3 / 0.5)" and "rgb(1,2,3,0.5)" both → 4 parts. */
 function callArgs(color: string, fn: string): string[] | null {
   const match = color.match(new RegExp(`^${fn}\\(([^)]*)\\)$`, "i"));
@@ -160,7 +157,7 @@ function accentLinear(color: string): [number, number, number] | null {
           ? [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4, 6)]
           : null;
     if (!pairs) return null;
-    return pairs.map((p) => srgbToLinear(parseInt(p, 16) / 255)) as [number, number, number];
+    return pairs.map((p) => toLinear(parseInt(p, 16) / 255)) as [number, number, number];
   }
   const rgbArgs = callArgs(color, "rgba?");
   if (rgbArgs && rgbArgs.length >= 3) {
@@ -172,7 +169,7 @@ function accentLinear(color: string): [number, number, number] | null {
     };
     const channels = rgbArgs.slice(0, 3).map(channel);
     if (channels.every((c): c is number => c != null))
-      return channels.map((c) => srgbToLinear(clamp01(c))) as [number, number, number];
+      return channels.map((c) => toLinear(clamp01(c))) as [number, number, number];
   }
   const hslArgs = callArgs(color, "hsla?");
   if (hslArgs && hslArgs.length >= 3) {
@@ -186,19 +183,10 @@ function accentLinear(color: string): [number, number, number] | null {
       return clamp01(lightness - saturation * Math.min(lightness, 1 - lightness) * Math.max(-1, Math.min(k - 3, 9 - k, 1)));
     };
     // CSS Color 4 evaluates the channel function at n = 0 (red), 8 (green), 4 (blue).
-    return [0, 8, 4].map((n) => srgbToLinear(channel(n))) as [number, number, number];
+    return [0, 8, 4].map((n) => toLinear(channel(n))) as [number, number, number];
   }
-  const oklab = (lightness: number, a: number, b: number): [number, number, number] => {
-    // Björn Ottosson's OKLab → linear sRGB; clamped like a browser clamps out-of-gamut colors.
-    const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-    const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-    const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
-    return [
-      clamp01(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-      clamp01(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-      clamp01(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
-    ];
-  };
+  // Clamped like a browser clamps out-of-gamut colors.
+  const oklab = (lightness: number, a: number, b: number) => oklabToLinear(lightness, a, b).map(clamp01) as [number, number, number];
   const oklabArgs = callArgs(color, "oklab");
   if (oklabArgs && oklabArgs.length >= 3) {
     const lightness = okLightness(oklabArgs[0]!);
@@ -229,7 +217,7 @@ function accentLinear(color: string): [number, number, number] | null {
 export function contrastForeground(color: string): string {
   const linear = accentLinear(color.trim());
   if (!linear) return "#ffffff";
-  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2] > 0.179 ? "#000000" : "#ffffff";
+  return linearLuminance(linear) > Math.sqrt(0.0525) - 0.05 ? "#000000" : "#ffffff";
 }
 
 const MODE_SELECTOR: Record<Mode, string> = {

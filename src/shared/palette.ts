@@ -59,7 +59,8 @@ function rgbToHex(rgb: Rgb): string {
   return `#${rgb.map((c) => Math.round(clamp(c, 0, 1) * 255).toString(16).padStart(2, "0")).join("")}`;
 }
 
-const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+/** One gamma-encoded sRGB channel (0..1) to linear light. css.ts shares it for accent foregrounds. */
+export const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 const toGamma = (c: number) => (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055);
 
 /** Björn Ottosson's OKLab, from gamma-encoded sRGB. */
@@ -74,11 +75,8 @@ function rgbToLch([r, g, b]: Rgb): Lch {
   return { l: L, c: Math.hypot(a, bb), h: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360 };
 }
 
-/** Gamma-encoded sRGB, possibly out of gamut. */
-function lchToRgbRaw({ l, c, h }: Lch): Rgb {
-  const angle = (h * Math.PI) / 180;
-  const a = c * Math.cos(angle);
-  const b = c * Math.sin(angle);
+/** Björn Ottosson's OKLab → linear sRGB, possibly out of gamut. */
+export function oklabToLinear(l: number, a: number, b: number): Rgb {
   const l3 = (l + 0.3963377774 * a + 0.2158037573 * b) ** 3;
   const m3 = (l - 0.1055613458 * a - 0.0638541728 * b) ** 3;
   const s3 = (l - 0.0894841775 * a - 1.291485548 * b) ** 3;
@@ -86,7 +84,13 @@ function lchToRgbRaw({ l, c, h }: Lch): Rgb {
     4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
     -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
     -0.0041960863 * l3 - 0.7034186147 * m3 + 1.707614701 * s3,
-  ].map((v) => toGamma(Math.max(0, v))) as Rgb;
+  ];
+}
+
+/** Gamma-encoded sRGB, possibly out of gamut. */
+function lchToRgbRaw({ l, c, h }: Lch): Rgb {
+  const angle = (h * Math.PI) / 180;
+  return oklabToLinear(l, c * Math.cos(angle), c * Math.sin(angle)).map((v) => toGamma(Math.max(0, v))) as Rgb;
 }
 
 const inGamut = (rgb: Rgb) => rgb.every((v) => v >= -1e-4 && v <= 1 + 1e-4);
@@ -107,8 +111,13 @@ function tone(l: number, c: number, h: number): Rgb {
   return rgb.map((v) => clamp(v, 0, 1)) as Rgb;
 }
 
-function luminance([r, g, b]: Rgb): number {
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+/** WCAG relative luminance of linear sRGB channels. */
+export function linearLuminance([r, g, b]: readonly [number, number, number]): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function luminance(rgb: Rgb): number {
+  return linearLuminance(rgb.map(toLinear) as Rgb);
 }
 
 export function contrastRatio(a: string | Rgb, b: string | Rgb): number {

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, type CssValueKind } from "../src/shared/css.ts";
 import { checkManifest, listThemes, loadLook, readConfig, resolveLook, type StartupAnimation, type ThemeEntry } from "../src/shared/look.ts";
+import { contrastRatio } from "../src/shared/palette.ts";
 
 const theme = (manifest: ThemeEntry["manifest"], dir = "/themes/t"): ThemeEntry => ({ id: "t", dir, builtin: true, manifest });
 
@@ -133,6 +134,15 @@ test("contrast foreground picks black on light accents and white on dark ones", 
   // Mid tones: black contrasts more from L ≈ 0.179 up, so they must not fall back to white.
   assert.equal(contrastForeground("#808080"), "#000000");
   assert.equal(contrastForeground("#7c5cff"), "#000000");
+});
+
+test("contrast foreground agrees with the palette's WCAG contrast on every 12-bit color", () => {
+  const hex = (n: number) => `#${[8, 4, 0].map((shift) => ((n >> shift) & 15).toString(16).repeat(2)).join("")}`;
+  for (let n = 0; n < 4096; n++) {
+    const color = hex(n);
+    const other = contrastForeground(color) === "#000000" ? "#ffffff" : "#000000";
+    assert.ok(contrastRatio(contrastForeground(color), color) >= contrastRatio(other, color), color);
+  }
 });
 
 test("contrast foreground resolves modern color syntaxes instead of defaulting to white", () => {
