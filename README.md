@@ -320,6 +320,7 @@ Linux 的窗口透明依赖桌面合成器。合成器不支持时，毛玻璃�
 1. **补丁只追加，不修改**。`app.asar` 里只多出三样东西：一个改了 `main` 字段的 `package.json`、一个约 20 行的引导脚本，以及还原所需的记录。第一次打补丁前，Canvas 会先验证官方 `app.asar` 能被逐字节还原，验证不通过就拒绝打补丁。
 2. **样式在首帧之前注入**。运行时在 ZCode 主进程里给页面注册预加载脚本，用 `webFrame.insertCSS` 注入样式，所以连启动画面都能改。样式不写进 DOM，React 碰不到它。
 3. **只依赖稳定的结构**：ZCode 的 `--color-*` 设计 token、主题 class、窗口外框和启动画面节点。ZCode 本来就用了半透明窗口，只是被不透明的外框盖住了，所以毛玻璃只需要把这些 token 调成半透明。
+4. **为什么改 `app.asar`，而不是远程注入**：CDP 类方案要求 ZCode 一直由第三方启动器带着调试端口启动——从 Dock 或 Spotlight 直接打开就没有主题，而且拿不到外观中心面板、菜单栏入口和启动画面。修改 `app.asar` 换来的 ad-hoc 重签名经真机验证（macOS Tahoe 25.4）不影响登录、钥匙串和启动。等上游提供官方扩展点后这条路会被取代，见 [docs/design.md](docs/design.md)。
 
 调研过程见 [docs/analysis.md](docs/analysis.md)，依赖了哪些 ZCode 内部实现、各部分的稳定性承诺见 [docs/design.md](docs/design.md)。
 
