@@ -1,7 +1,7 @@
 // Session preload: runs in every page of ZCode's default session before any page script, so the
 // CSS is in place for the very first paint (including the startup screen).
 import { ipcRenderer, webFrame } from "electron";
-import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_LOG, decodeState } from "../shared/protocol.ts";
+import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_LOG, CHANNEL_PANEL_SAVE_THEME, decodeState } from "../shared/protocol.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { mountOverlay } from "./overlay.ts";
 import { createPreviewController } from "./preview-controller.ts";
@@ -42,6 +42,7 @@ if (isMainWindow) {
         apply: (value) => ipcRenderer.invoke(CHANNEL_PANEL_APPLY, value),
         selectWallpaper: (id) => ipcRenderer.invoke(CHANNEL_PANEL_SELECT_WALLPAPER, id),
         pickWallpaper: () => ipcRenderer.invoke(CHANNEL_PANEL_PICK_WALLPAPER),
+        saveTheme: (request) => ipcRenderer.invoke(CHANNEL_PANEL_SAVE_THEME, request),
         preview: preview.preview,
         clearPreview: preview.clear, log,
       });

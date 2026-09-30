@@ -1,5 +1,6 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
+import { mountStudio, studioMarkup } from "./overlay-studio.ts";
 import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, isTransparency, knobRangeText, knobs, knobValue, parseKnobInput, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
 import { GLASS_REGIONS } from "../shared/glass.ts";
 import type { WallpaperFit } from "../shared/look.ts";
@@ -10,6 +11,8 @@ export interface OverlayApi {
   apply(input: PanelInput): Promise<unknown>;
   selectWallpaper(id: string): Promise<unknown>;
   pickWallpaper(): Promise<{ canceled: boolean }>;
+  /** `{ name }` saves the look as a new theme, `{}` into the active user theme. */
+  saveTheme(request: { name?: string }): Promise<unknown>;
   preview(input: PanelInput): Promise<void>;
   clearPreview(): void;
   log(message: string): void;
@@ -90,6 +93,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
           </details>
         </div>
       </div>
+      ${studioMarkup}
       <footer><span class="dot"></span><span id="status" role="status" aria-live="polite">即点即用 · 所有窗口同步</span><kbd>Esc</kbd></footer>
     </section>
     <div class="menu" id="menu" role="menu" hidden></div>`;
@@ -195,7 +199,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   function setBusy(value: boolean) {
     busy = value;
     panel.setAttribute("aria-busy", String(value));
-    for (const control of root.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(".content button,.content input,.content select")) control.disabled = value;
+    for (const control of root.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(".content button,.content input,.content select,.studio button,.studio input")) control.disabled = value;
   }
   async function mutate(action: () => Promise<unknown>, message: string | ((data: PanelData) => string)) {
     if (busy) return;
@@ -604,6 +608,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     const painted = data.imageUrl?.[mode()] ?? null;
     if (painted !== sampledUrl) { sampledUrl = painted; sampleWallpaper(painted); }
     else renderPalette();
+    studio.render();
     position();
   }
   function showMenu(anchor: HTMLElement) {
@@ -713,6 +718,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
       else if (!e.shiftKey && root.activeElement === last) { e.preventDefault(); first?.focus(); }
     }
   });
+  const studio = mountStudio({ $, listen, mutate, data: () => data,
+    saveTheme: (request) => api.saveTheme(request), discard: () => api.apply({ discard: true }) });
   readPreferences(); applyMode(); position();
   const shortcut = navigator.platform.toLowerCase().includes("mac") ? "⌘⌥⇧O" : "Ctrl+Alt+Shift+O";
   entry.title = `外观 · ${shortcut}\n拖动调整位置，右键隐藏或重置`;
