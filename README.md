@@ -7,7 +7,7 @@
 主题 · 壁纸 · 毛玻璃 · 启动画面<br>
 不用编译，不用维护 fork，随时逐字节还原。
 
-[![ZCode 3.14.3](https://img.shields.io/badge/ZCode-3.14.3_已验证-111?style=flat-square)](#平台支持)
+[![ZCode 3.14.4](https://img.shields.io/badge/ZCode-3.14.4_已验证-111?style=flat-square)](#平台支持)
 [![npm](https://img.shields.io/npm/v/zcode-canvas?style=flat-square&color=111&label=npm)](https://www.npmjs.com/package/zcode-canvas)
 [![platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-111?style=flat-square)](#平台支持)
 [![license](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
@@ -293,7 +293,7 @@ zcode-canvas restore --purge   # 同时删除 ~/.zcode-canvas（包括你的主�
 
 ## 平台支持
 
-已在 ZCode 3.14.3（Electron 41）上验证。
+已在 ZCode 3.14.4（Electron 41）上验证。
 
 | 平台 | 安装格式 | 状态 |
 |---|---|---|
