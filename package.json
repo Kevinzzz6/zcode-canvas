@@ -36,7 +36,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
     "prepack": "npm run build",
-    "build:endfield": "node scripts/build-endfield.mjs"
+    "build:endfield": "node scripts/build-endfield.mjs",
+    "build:yorha": "node scripts/build-yorha.mjs"
   },
   "keywords": [
     "zcode",
