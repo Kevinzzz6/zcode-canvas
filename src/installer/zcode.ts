@@ -316,14 +316,24 @@ function replaceArchive(install: Installation, prepared: string, cliPath: string
 /**
  * macOS code signatures seal app.asar, so any patch — or restore, which also changes bytes under the
  * current signature — must be followed by an ad-hoc re-sign or Gatekeeper will call the app damaged.
+ * The re-sign is then verified, and a leftover quarantine attribute is cleared as insurance for
+ * macOS builds that treat ad-hoc + quarantine as damaged (Tahoe 25.4 launches fine with it).
  * Returns false (instead of throwing) so the caller can report that the archive was already replaced.
  */
 const adHocResign: Resigner = (install: Installation): string | null => {
   if (process.platform !== "darwin") return null;
   const result = spawnSync("codesign", ["--force", "--deep", "--sign", "-", install.dir], { encoding: "utf8" });
-  if (result.status === 0) return null;
-  return (result.stderr || "").trim().split("\n").slice(-3).join("\n").trim();
+  if (result.status !== 0) return lastLines(result.stderr);
+  const verify = spawnSync("codesign", ["--verify", "--deep", "--strict", install.dir], { encoding: "utf8" });
+  if (verify.status !== 0) return `signature does not verify after re-sign: ${lastLines(verify.stderr)}`;
+  // Best effort: xattr exits nonzero when the attribute is absent, which is the common case.
+  spawnSync("xattr", ["-d", "com.apple.quarantine", install.dir], { stdio: "ignore" });
+  return null;
 };
+
+function lastLines(stderr: string | Buffer | null): string {
+  return String(stderr || "").trim().split("\n").slice(-3).join("\n").trim();
+}
 
 
 /** Body of the detached helper started by replaceArchive(). */
