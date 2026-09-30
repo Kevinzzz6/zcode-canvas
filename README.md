@@ -12,7 +12,7 @@
 [![platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-111?style=flat-square)](#平台支持)
 [![license](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
 
-<img src="docs/images/hero.webp" alt="同一个 ZCode 窗口的三种样子：雨夜壁纸、樱、终末地 · 谷地黄" width="100%">
+<img src="docs/images/hero.webp" alt="同一个 ZCode 窗口的三种样子：樱、终末地 · 谷地黄、尼尔 · 寄叶" width="100%">
 
 </div>
 
@@ -229,6 +229,18 @@ npm install && npm run build && npm link
 
 ## 壁纸
 
+<img src="docs/images/wallpaper-rain.webp" alt="雨夜街头的两只玩偶铺满 ZCode，侧边栏和输入框半透明" width="100%">
+
+<p align="center"><sub>任何一张喜欢的图，都能铺满整个 ZCode</sub></p>
+
+最简单的是在外观中心点“添加图片”，之后在“我的壁纸”里点一下就能换。支持 png、jpg、webp、avif、svg 和 GIF。命令行也可以：
+
+```sh
+zcode-canvas set wallpaper.image ~/pic.jpg          # 换壁纸
+zcode-canvas set glass.opacity 0.5                  # 界面半透明，让壁纸透出来
+zcode-canvas set wallpaper.dark.image ~/night.jpg   # 暗色模式单独用一张
+```
+
 <table>
 <tr>
 <td width="50%"><img src="docs/images/wallpaper-light.webp" alt="同一张壁纸在亮色模式下"></td>
@@ -238,14 +250,6 @@ npm install && npm run build && npm link
 <td colspan="2" align="center"><sub>同一张壁纸，亮色和暗色下界面会自动换成对应的底色</sub></td>
 </tr>
 </table>
-
-最简单的是在外观中心点“添加图片”，之后在“我的壁纸”里点一下就能换。支持 png、jpg、webp、avif、svg 和 GIF。命令行也可以：
-
-```sh
-zcode-canvas set wallpaper.image ~/pic.jpg          # 换壁纸
-zcode-canvas set glass.opacity 0.5                  # 界面半透明，让壁纸透出来
-zcode-canvas set wallpaper.dark.image ~/night.jpg   # 暗色模式单独用一张
-```
 
 设置了壁纸却看不到，通常是界面完全不透明把它盖住了：把 `glass.opacity` 调低，或者在外观中心调低“界面透明”。在 Windows 上，壁纸会盖住系统原生的毛玻璃材质，两者只能看到一个。
 
