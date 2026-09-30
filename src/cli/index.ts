@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { themeSchemaProblems } from "./schema.ts";
 import { importWallpaper } from "./wallpaper.ts";
@@ -9,22 +9,19 @@ import { isPaletteColor, PALETTE_VARIANTS, type PaletteVariant } from "../shared
 import {
   canvasHome,
   checkManifest,
-  FORMAT_VERSION,
   listThemes,
   loadLook,
   MATERIALS,
   MODES,
   paths,
   readConfig,
-  SCHEMA_URL,
   STARTUP_ANIMATIONS,
   WALLPAPER_FITS,
   writeConfigAtomic,
   type CanvasConfig,
   type ThemeEntry,
-  type ThemeManifest,
-  type WallpaperLayer,
 } from "../shared/look.ts";
+import { flattenLook, writeTheme } from "../shared/save-theme.ts";
 import {
   applyPatch,
   deployRuntime,
@@ -274,30 +271,10 @@ function set(key: string | undefined, raw: string | undefined, remove = false) {
 
 function newTheme(id: string | undefined) {
   if (!id || !/^[\w-]+$/.test(id)) throw new Error("用法: zcode-canvas new <id>（只能包含字母、数字、- 和 _）");
-  const dir = join(paths.userThemes(home), id);
-  if (existsSync(dir)) throw new Error(`主题目录已存在: ${dir}`);
-  mkdirSync(dir, { recursive: true });
   const config = readConfig(home);
-  const manifest: ThemeManifest = { $schema: SCHEMA_URL, format: FORMAT_VERSION, name: id };
-  for (const key of ["colors", "accent", "radius", "palette", "vars", "glass"] as const) if (config[key] !== undefined) Object.assign(manifest, { [key]: config[key] });
-  const copyInto = (file: string | null | undefined, name: string) => {
-    if (!file || !existsSync(file)) return file;
-    const target = `${name}${extname(file)}`;
-    copyFileSync(file, join(dir, target));
-    return target;
-  };
-  if (config.wallpaper) {
-    const wallpaper: WallpaperLayer = { ...config.wallpaper };
-    if (wallpaper.image) wallpaper.image = copyInto(wallpaper.image, "wallpaper");
-    for (const mode of MODES) {
-      const own = wallpaper[mode];
-      if (own?.image) wallpaper[mode] = { ...own, image: copyInto(own.image, `wallpaper-${mode}`) };
-    }
-    manifest.wallpaper = wallpaper;
-  }
-  if (config.startup) manifest.startup = { ...config.startup, logo: copyInto(config.startup.logo, "logo") };
-  writeFileSync(join(dir, "theme.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  console.log(`✓ 已创建主题 ${dir}`);
+  const current = config.theme ? listThemes(home, [packagedThemes]).find((t) => t.id === config.theme) ?? null : null;
+  writeTheme(home, id, { name: id }, flattenLook(config, current, home), false);
+  console.log(`✓ 已创建主题 ${join(paths.userThemes(home), id)}`);
   console.log(`  编辑 theme.json 后运行 \`zcode-canvas use ${id}\`。`);
 }
 
