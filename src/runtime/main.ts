@@ -9,7 +9,7 @@ import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CH
 import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
-import { watchHome } from "./watch.ts";
+import { watchHome, debounced } from "./watch.ts";
 
 const PANEL_ACCELERATOR = "CommandOrControl+Alt+Shift+O";
 const MENU_LABEL = "ZCode Canvas";
@@ -268,7 +268,12 @@ try {
     }
   });
 
-  registerPanelHandlers({ home, ipc: ipcMain, log, pickWallpaperFile, reload, isPanelSender });
+  // One coalescing point for every reload trigger. Panel handlers call this directly after writing
+  // config, and the watcher feeds filesystem events into it; sharing the timer means a single
+  // logical change reloads once instead of once per source that noticed it.
+  const scheduleReload = debounced(reload, 150);
+
+  registerPanelHandlers({ home, ipc: ipcMain, log, pickWallpaperFile, reload: scheduleReload, isPanelSender });
   try {
     ipcMain.on(CHANNEL_PANEL_LOG, (event, message: unknown) => {
       try {
@@ -296,8 +301,9 @@ try {
   });
 
   // The payload is versioned (shared/protocol.ts): after a runtime upgrade on disk, pages loaded
-  // afterwards run the new preload against this still-running old main.
-  watchHome(home, reload, log);
+  // afterwards run the new preload against this still-running old main. Debounce lives in
+  // scheduleReload (see above), so the watcher itself passes events through undelayed.
+  watchHome(home, scheduleReload, log, 0);
   log(`runtime loaded in ZCode ${app.getVersion()} (css ${state.css.length} bytes, material ${state.material})`);
 } catch (error) {
   log(`runtime init failed: ${String(error)}`);
