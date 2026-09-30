@@ -32,8 +32,8 @@
 |---|---|---|---|
 | `--color-*` 设计 token，`.dark` / `.theme-zai-*` 主题 class | `packages/ui/src/styles.css` | `src/shared/css.ts` | 配色或透明度部分失效 |
 | 分区玻璃的区域划分：侧栏没有自己的背景，透出的是窗口外框；主区域是外框上的 `bg-background`；输入框聚焦时换成 `input-focused` | `WorkspaceShellLayout.tsx`、`prompt-editor/ChatPromptEditor.tsx` | `src/shared/css.ts` 的 `SURFACES`、`src/shared/glass.ts` | 某个区域的透明度调了没反应，或跟着别的区域变 |
-| Tailwind 背景工具类 `.bg-background`、`.bg-panel`、`.bg-card`、`.bg-input`（毛玻璃模糊挂在它们上面） | ZCode 组件的 className | `src/shared/css.ts` 的 `BLURRED_SURFACES` | 对应区域的模糊失效，透明度不受影响 |
-| 窗口外框 `[data-desktop-window-frame]` | `packages/ui/src/DesktopWindowFrame.tsx` | `src/shared/css.ts` | 毛玻璃失效 |
+| Tailwind 背景工具类 `.bg-background`、`.bg-panel`、`.bg-card`、`.bg-input`（毛玻璃模糊挂在它们上面） | ZCode 组件的 className | `src/shared/glass.ts` 的 `BLURRED_SURFACES`，供 `src/shared/css.ts` 的模糊和 `regionHighlightCss` 的区域高亮共用 | 对应区域的模糊失效，透明度不受影响；调这个区域时高亮不显示 |
+| 窗口外框 `[data-desktop-window-frame]` | `packages/ui/src/DesktopWindowFrame.tsx` | `src/shared/css.ts`、`src/shared/glass.ts` 的 `regionHighlightCss` | 毛玻璃失效；调侧栏时高亮不显示 |
 | 启动画面 `#loading`、`.startup-logo-shell`、`body.zcode-startup-ready` | `packages/desktop/src/renderer/index.html` | `src/shared/css.ts` | 启动画面定制失效 |
 | 启动画面的退场时机：React 首次渲染完成、且收到 `.startup-logo-shell` 的 `animationend` 后才移除；这段脚本构建后并入主程序包，包开始执行后才开始监听，等不到就 1 秒兜底；减少动画模式下不等动画，由官方样式让 logo 静止 | `packages/desktop/src/renderer/index.html` 的内联脚本与样式 | `src/shared/css.ts` 的启动动画 | 启动画面多停留最多 1 秒，或动画没播完就被撤下 |
 | 主窗口页面路径 `out/renderer/index.html`，其他窗口带 `windowKind` 参数 | `packages/desktop/src/main` 中创建窗口的代码 | `src/runtime/preload.ts`、`src/runtime/main.ts` 的 `senderIsMainWindow` | 样式不注入，或注入到错误的窗口 |
@@ -64,6 +64,7 @@
 - 悬停配色风格时走既有的只读预览，移开即恢复；点击才提交。
 - 有个人外观覆盖时，页脚上方出现保存条：「另存为」新建用户主题，「保存」写回当前用户主题（内置主题和「原生」只能另存为，`apply` 会覆盖内置主题），「丢弃」要点两次，删除全部个人外观覆盖（含壁纸选择）。保存后切到该主题并清空个人覆盖，修改从此归主题所有。渲染层只传主题名称，主进程生成 id、只写 Canvas 自有的 `themes/` 目录。保存逻辑在 `src/shared/save-theme.ts`，与 `zcode-canvas new` 共用；它与 `resolveLook` 共用同一套逐层合并（`mergeLayers`），保存前后生成的 CSS 语义相同，由测试对所有内置主题锁定。
 - 分区玻璃没单独设置的区域跟随整体「界面透明」「界面模糊」，拖动整体滑杆时这些区域的滑杆同步移动。区域的透明看不出效果时就近说明原因：侧栏（即窗口外框）不透明时其他区域只能透出侧栏颜色；主区域不会比它下面的侧栏更通透。
+- 使用分区玻璃的控件时（按住或键盘聚焦滑杆、指针停在该行上），给这个区域在 ZCode 里对应的界面描一圈强调色内描边：侧栏描窗口外框，其余区域描挂毛玻璃的那些背景类。松手约 1 秒后、移开或失焦、关闭面板时撤掉；整体控件不高亮。只靠 CSS：描边规则是常量，由 preload 用自己的一份 `insertCSS` 插入和移除，与预览和已提交的样式互不干扰；不查询宿主 DOM，不新增 IPC，不写配置、不广播。
 
 ## 4. 修复门槛
 

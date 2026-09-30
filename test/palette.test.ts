@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { buildCss, isSafeCssValue } from "../src/shared/css.ts";
-import { mainCappedByFrame, regionAlphas, type GlassRegion, type ResolvedRegion } from "../src/shared/glass.ts";
+import { BLUR_REGIONS, BLURRED_SURFACES, mainCappedByFrame, regionAlphas, regionHighlightCss, type GlassRegion, type ResolvedRegion } from "../src/shared/glass.ts";
 import { resolveLook, type ThemeEntry } from "../src/shared/look.ts";
 import { contrastRatio, extractColors, filteredBackdrop, generatePalette, PALETTE_VARIANTS } from "../src/shared/palette.ts";
 
@@ -150,6 +150,24 @@ test("per-region glass writes its own alphas and blur, and untouched regions kee
   assert.doesNotMatch(onlyMain, /--color-background-win-alt: color-mix/, "global opacity 1 keeps the frame opaque");
   assert.match(onlyMain, /--color-background: color-mix\(in srgb, var\(--zc-src-background\) 60%, transparent\)/);
   assert.match(onlyMain, /#root \.bg-background,\n#root \.bg-panel \{\n {2}backdrop-filter: blur\(8px\)/);
+});
+
+test("a region highlight outlines exactly the surfaces its blur is written for", () => {
+  assert.equal(regionHighlightCss(null), "");
+  const selectorsOf = (rule: string) => rule.slice(0, rule.indexOf(" {")).split(",\n");
+  assert.deepEqual(selectorsOf(regionHighlightCss("frame")), ["#root [data-desktop-window-frame]"]);
+  for (const region of BLUR_REGIONS) {
+    const rule = regionHighlightCss(region);
+    assert.deepEqual(selectorsOf(rule), BLURRED_SURFACES[region].map((s) => `#root ${s}`), region);
+    // The same selectors the generated sheet blurs, so the two cannot drift apart.
+    const { css } = buildCss(resolveLook({ glass: { opacity: 1, blur: 0, regions: { [region]: { opacity: 0.5, blur: 7 } } } }, null, "/home"));
+    assert.ok(css.includes(`${selectorsOf(rule).join(",\n")} {\n  backdrop-filter: blur(7px)`), region);
+  }
+  for (const region of ["frame", ...BLUR_REGIONS] as const) {
+    const rule = regionHighlightCss(region);
+    assert.match(rule, /outline: 2px solid var\(--color-primary\) !important;\n {2}outline-offset: -2px !important;/, region);
+    assert.doesNotMatch(rule, /url\(|@|animation|transition/, "constant, layout-neutral and motionless");
+  }
 });
 
 test("the focused prompt input stays as translucent as the unfocused one", () => {

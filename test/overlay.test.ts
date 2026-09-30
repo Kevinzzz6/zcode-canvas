@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPreviewController } from "../src/runtime/preview-controller.ts";
-import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, parseKnobInput, positionSlack, positionValue, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type DiagnosisInput } from "../src/runtime/overlay-preview.ts";
+import { createRegionHighlight, diagnose, displayNumber, formatKnob, fromSlider, HIGHLIGHT_LINGER, inputKey, knobs, parseKnobInput, positionSlack, positionValue, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type DiagnosisInput, type Knob } from "../src/runtime/overlay-preview.ts";
+import type { GlassRegion } from "../src/shared/glass.ts";
 import type { ResolvedWallpaper } from "../src/shared/look.ts";
 import { positionAxes } from "../src/shared/position.ts";
 import { isMainWindowUrl } from "../src/shared/window.ts";
@@ -138,6 +139,59 @@ test("region controls map to their requests and say when layering hides their ef
   assert.ok(opaqueInput.disabled.inputBlur);
   assert.equal(opaqueInput.disabled.mainBlur, undefined);
   assert.ok(diagnose(state({ regions: { frame: 0, main: 0, card: 0, input: 0 } })).disabled.glassBlur);
+});
+
+test("only per-region controls name a region to highlight", () => {
+  const regions = Object.fromEntries((Object.keys(knobs) as Knob[]).map((key) => [key, regionOf(key)]).filter(([, region]) => region));
+  assert.deepEqual(regions, {
+    frameTransparency: "frame", mainTransparency: "main", cardTransparency: "card", inputTransparency: "input",
+    mainBlur: "main", cardBlur: "card", inputBlur: "input",
+  });
+  for (const key of ["transparency", "glassBlur", "brightness"] as const) assert.equal(regionOf(key), null, key);
+});
+
+test("a region stays outlined while pressed, briefly after release, and while hovered or focused", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const shown: (GlassRegion | null)[] = [];
+  const highlight = createRegionHighlight((region) => shown.push(region));
+
+  highlight.hover("card", true);
+  highlight.press("card");
+  highlight.hover("card", false);
+  assert.deepEqual(shown, ["card"], "leaving while dragging keeps it and repeats nothing");
+  highlight.release();
+  t.mock.timers.tick(HIGHLIGHT_LINGER - 1);
+  assert.deepEqual(shown, ["card"], "still shown right after release");
+  t.mock.timers.tick(1);
+  assert.deepEqual(shown, ["card", null]);
+
+  shown.length = 0;
+  highlight.hover("input", true);
+  highlight.press("input");
+  highlight.release();
+  t.mock.timers.tick(HIGHLIGHT_LINGER);
+  assert.deepEqual(shown, ["input"], "released over the row: kept while hovered");
+  highlight.hover("main", true);
+  highlight.hover("input", false);
+  assert.deepEqual(shown, ["input", "main"], "a late leave of the old row does not clear the new one");
+  highlight.hover("main", false);
+  assert.deepEqual(shown, ["input", "main", null], "leaving without a drag clears at once");
+
+  shown.length = 0;
+  highlight.focus("frame", true);
+  highlight.focus("frame", false);
+  highlight.nudge("main");
+  assert.deepEqual(shown, ["frame", null, "main"]);
+  t.mock.timers.tick(HIGHLIGHT_LINGER);
+  assert.deepEqual(shown, ["frame", null, "main", null], "a keyboard step shows the region briefly");
+
+  shown.length = 0;
+  highlight.hover("card", true);
+  highlight.press("card");
+  highlight.release();
+  highlight.clear();
+  t.mock.timers.tick(HIGHLIGHT_LINGER);
+  assert.deepEqual(shown, ["card", null], "closing the panel clears it and cancels the pending release");
 });
 
 function deferred<T>() {

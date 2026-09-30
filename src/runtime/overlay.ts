@@ -1,8 +1,8 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
 import { mountStudio, studioMarkup } from "./overlay-studio.ts";
-import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, isTransparency, knobRangeText, knobs, knobValue, parseKnobInput, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
-import { GLASS_REGIONS } from "../shared/glass.ts";
+import { createRegionHighlight, diagnose, displayNumber, formatKnob, fromSlider, inputKey, isTransparency, knobRangeText, knobs, knobValue, parseKnobInput, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
+import { GLASS_REGIONS, type GlassRegion } from "../shared/glass.ts";
 import type { WallpaperFit } from "../shared/look.ts";
 import { extractColors, generatePalette, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
 
@@ -15,6 +15,8 @@ export interface OverlayApi {
   saveTheme(request: { name?: string }): Promise<unknown>;
   preview(input: PanelInput): Promise<void>;
   clearPreview(): void;
+  /** Outline the host surfaces of a glass region while its controls are in use; null removes it. */
+  highlight(region: GlassRegion | null): void;
   log(message: string): void;
 }
 
@@ -134,6 +136,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   const safe = (action: () => void | Promise<unknown>) => () => {
     try { Promise.resolve(action()).catch(report); } catch (error) { report(error); }
   };
+  const highlight = createRegionHighlight((region) => {
+    try { api.highlight(region); } catch (error) { api.log(`highlight: ${String(error)}`); }
+  });
   function listen(target: EventTarget, name: string, action: (event: Event) => void | Promise<unknown>) {
     target.addEventListener(name, (event) => safe(() => action(event))());
   }
@@ -170,6 +175,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   function dismiss(restoreFocus: boolean) {
     if (panel.hidden && menu.hidden) return;
     if (Object.keys(pending).length) safe(commitPending)();
+    highlight.clear();
     panel.hidden = true;
     menu.hidden = true;
     entry.setAttribute("aria-expanded", "false");
@@ -267,6 +273,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     }
     else (pending as Record<string, unknown>)[key] = value;
     updateKnob(key, value);
+    const region = regionOf(key);
+    if (region) highlight.nudge(region);
     // Regions nobody tuned move with the global controls, on screen as they do in the sheet.
     if (data && (key === "transparency" || key === "glassBlur")) {
       for (const region of GLASS_REGIONS) {
@@ -391,6 +399,24 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     listen(input, "pointerup", () => { draggingSlider = false; return commitPending(); });
     listen(input, "pointercancel", () => { draggingSlider = false; return commitPending(); });
     listen(input, "blur", () => { if (activeSlider === input) return commitPending(); });
+    const region = regionOf(key);
+    if (region) {
+      listen(row, "pointerenter", () => highlight.hover(region, true));
+      listen(row, "pointerleave", () => highlight.hover(region, false));
+      // Only keyboard focus: a slider clicked with the mouse keeps focus after the pointer has left.
+      listen(row, "focusin", (event) => highlight.focus(region, (event.target as Element).matches(":focus-visible")));
+      listen(row, "focusout", () => highlight.focus(region, false));
+      listen(input, "pointerdown", () => highlight.press(region));
+      // A captured pointer sends no pointerleave until it moves again, so a release outside the row
+      // ends the hover here.
+      listen(input, "pointerup", (event) => {
+        const { clientX: x, clientY: y } = event as PointerEvent;
+        const box = row.getBoundingClientRect();
+        if (x < box.left || x > box.right || y < box.top || y > box.bottom) highlight.hover(region, false);
+        highlight.release();
+      });
+      listen(input, "pointercancel", () => { highlight.hover(region, false); highlight.release(); });
+    }
   }
   /** Read seed colors from a small copy of the painted wallpaper; a stale answer is dropped. */
   function sampleWallpaper(url: string | null) {
@@ -723,6 +749,6 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   readPreferences(); applyMode(); position();
   const shortcut = navigator.platform.toLowerCase().includes("mac") ? "⌘⌥⇧O" : "Ctrl+Alt+Shift+O";
   entry.title = `外观 · ${shortcut}\n拖动调整位置，右键隐藏或重置`;
-  listen(window, "pagehide", () => { api.clearPreview(); host.remove(); });
+  listen(window, "pagehide", () => { highlight.clear(); api.clearPreview(); host.remove(); });
   return { open: safe(open), refresh: safe(refresh) };
 }

@@ -37,6 +37,40 @@ export function regionOf(key: Knob): GlassRegion | null {
   return "region" in spec ? spec.region : null;
 }
 
+/** How long a region stays outlined after its control is let go, so the result can be seen. */
+export const HIGHLIGHT_LINGER = 1000;
+
+/**
+ * Which region to outline while its controls are in use: pressed, then hovered, then just changed
+ * (for HIGHLIGHT_LINGER), then keyboard-focused. `show` runs only when the answer changes.
+ */
+export function createRegionHighlight(show: (region: GlassRegion | null) => void) {
+  let pressed: GlassRegion | null = null;
+  let hovered: GlassRegion | null = null;
+  let focused: GlassRegion | null = null;
+  let lingering: GlassRegion | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let shown: GlassRegion | null = null;
+  const sync = () => {
+    const next = pressed ?? hovered ?? lingering ?? focused;
+    if (next !== shown) { shown = next; show(next); }
+  };
+  const linger = (region: GlassRegion) => {
+    clearTimeout(timer);
+    lingering = region;
+    timer = setTimeout(() => { lingering = null; sync(); }, HIGHLIGHT_LINGER);
+  };
+  return {
+    press(region: GlassRegion) { pressed = region; sync(); },
+    release() { if (pressed) linger(pressed); pressed = null; sync(); },
+    /** A value changed without a press (keyboard step, typed number). */
+    nudge(region: GlassRegion) { linger(region); sync(); },
+    hover(region: GlassRegion, on: boolean) { if (on) hovered = region; else if (hovered === region) hovered = null; sync(); },
+    focus(region: GlassRegion, on: boolean) { if (on) focused = region; else if (focused === region) focused = null; sync(); },
+    clear() { clearTimeout(timer); pressed = hovered = focused = lingering = null; sync(); },
+  };
+}
+
 /** Name of the control in panel requests; transparency is stored inverted as glass opacity. */
 export function inputKey(key: Knob): string {
   if (key === "transparency") return "glassOpacity";

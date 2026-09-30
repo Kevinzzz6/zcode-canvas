@@ -1,5 +1,5 @@
-// The translucency model shared by the CSS generator, the palette's readability check and the panel.
-// Pure: no node or DOM imports.
+// The translucency model shared by the CSS generator, the palette's readability check, the panel and
+// the session preload. Pure: no node or DOM imports.
 //
 // ZCode paints in layers: the window frame (which is also what the sidebar shows, it has no background
 // of its own), the main pane on top of it, and cards / the prompt input on top of that. Each region
@@ -12,6 +12,26 @@ export const GLASS_REGIONS: readonly GlassRegion[] = ["frame", "main", "card", "
 /** Regions whose surfaces take a backdrop blur. The frame never does: a backdrop-filter there would
  *  become the backdrop root of everything inside it and cut the main pane's blur off the wallpaper. */
 export const BLUR_REGIONS: readonly GlassRegion[] = ["main", "card", "input"];
+
+/** Tailwind background utilities of each region's surfaces, which take its backdrop blur. */
+export const BLURRED_SURFACES: Record<GlassRegion, readonly string[]> = {
+  frame: [],
+  main: [".bg-background", ".bg-panel"],
+  card: [".bg-card"],
+  input: [".bg-input"],
+};
+
+/**
+ * Outline for the surfaces a region's controls act on, inserted by the session preload while one is in
+ * use; "" for none. Built from the blur's own selectors, plus the window frame the frame region is.
+ * Lives here, not in css.ts, because the sandboxed preload cannot load node modules. The outline is
+ * drawn inside each box, so nothing moves.
+ */
+export function regionHighlightCss(region: GlassRegion | null): string {
+  if (!region) return "";
+  const selectors = region === "frame" ? ["[data-desktop-window-frame]"] : BLURRED_SURFACES[region];
+  return `${selectors.map((s) => `#root ${s}`).join(",\n")} {\n  outline: 2px solid var(--color-primary) !important;\n  outline-offset: -2px !important;\n}\n`;
+}
 
 export interface GlassRegionSpec {
   /** Opacity of this region, 0..1, used instead of glass.opacity. */

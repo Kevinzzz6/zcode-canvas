@@ -228,6 +228,47 @@ try {
   assert.match(inputColor, /\/ 0\.95\)|, 0\.95\)/, `input keeps 95% of its color (${inputColor})`);
   await change("mainTransparency", 90);
   assert.equal(await ui('return this.getElementById("region-hint").hidden'), false, "a main pane clearer than the frame explains why");
+
+  // A region control outlines its region's surfaces from the preload's own sheet while in use.
+  await ui('document.querySelector("#canvas-smoke-frame #root").insertAdjacentHTML("beforeend","<div class=\\"bg-card\\" id=\\"canvas-smoke-card\\"></div>")');
+  const outline = (id) => ui(`return getComputedStyle(document.getElementById(${JSON.stringify(id)})).outlineStyle`);
+  const rowPoint = (id) => ui(`const s=this.getElementById(${JSON.stringify(id)});s.scrollIntoView({block:"nearest"});const r=s.getBoundingClientRect();return {x:r.x+r.width*.5,y:r.y+r.height/2}`);
+  const lookBefore = await ui('return getComputedStyle(document.getElementById("canvas-smoke-input")).backgroundColor');
+  assert.equal(await outline("canvas-smoke-card"), "none");
+  const cardPoint = await rowPoint("cardTransparency");
+  const away = await ui('const r=this.getElementById("panel").getBoundingClientRect();return {x:Math.max(5,r.x-40),y:r.y+40}');
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...cardPoint });
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", ...cardPoint, button: "left", clickCount: 1 });
+  await pause(100);
+  assert.equal(await outline("canvas-smoke-card"), "solid", "pressing the card control outlines cards");
+  assert.equal(await outline("canvas-smoke-input"), "none", "other regions stay plain");
+  assert.equal(await ui('return getComputedStyle(document.getElementById("canvas-smoke-card")).outlineOffset'), "-2px");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...away, button: "left", buttons: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", ...away, button: "left", clickCount: 1 });
+  await pause(200);
+  assert.equal(await outline("canvas-smoke-card"), "solid", "kept briefly after release");
+  await pause(1100);
+  assert.equal(await outline("canvas-smoke-card"), "none", "gone once released and not hovered");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...cardPoint });
+  await pause(100);
+  assert.equal(await outline("canvas-smoke-card"), "solid", "hovering the row outlines cards");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...away });
+  await pause(100);
+  assert.equal(await outline("canvas-smoke-card"), "none", "leaving without a drag clears at once");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await rowPoint("transparency")) });
+  await pause(100);
+  assert.equal(await outline("canvas-smoke-card"), "none", "global controls highlight nothing");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...(await rowPoint("cardTransparency")) });
+  await pause(100);
+  assert.equal(await outline("canvas-smoke-card"), "solid");
+  await ui('this.getElementById("close").click()');
+  assert.equal(await outline("canvas-smoke-card"), "none", "closing the panel clears it");
+  assert.equal(await ui('return getComputedStyle(document.getElementById("canvas-smoke-input")).backgroundColor'), lookBefore, "the highlight never touches the look");
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...away });
+  await ui('this.querySelector(".entry").click()');
+  await pause();
+  await ui('this.getElementById("region-details").open=true');
+
   await ui('this.getElementById("reset-regions").click()');
   await pause();
   assert.equal(config().glass.regions, undefined);

@@ -2,6 +2,7 @@
 // CSS is in place for the very first paint (including the startup screen).
 import { ipcRenderer, webFrame } from "electron";
 import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_LOG, CHANNEL_PANEL_SAVE_THEME, decodeState } from "../shared/protocol.ts";
+import { regionHighlightCss, type GlassRegion } from "../shared/glass.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { mountOverlay } from "./overlay.ts";
 import { createPreviewController } from "./preview-controller.ts";
@@ -17,6 +18,18 @@ if (isMainWindow) {
     key = nextKey;
   };
   const preview = createPreviewController((input) => ipcRenderer.invoke(CHANNEL_PANEL_PREVIEW, input), apply);
+  // Its own sheet: never part of the preview or committed CSS, never saved or sent to other windows.
+  let highlightKey: string | null = null;
+  const highlight = (region: GlassRegion | null) => {
+    try {
+      const css = regionHighlightCss(region);
+      const nextKey = css ? webFrame.insertCSS(css) : null;
+      if (highlightKey) webFrame.removeInsertedCSS(highlightKey);
+      highlightKey = nextKey;
+    } catch (error) {
+      log(`highlight: ${String(error)}`);
+    }
+  };
   try {
     // A payload from a newer runtime protocol (main upgraded on disk, ZCode not restarted) is
     // ignored: half-understood styling is worse than none until the next launch.
@@ -44,7 +57,7 @@ if (isMainWindow) {
         pickWallpaper: () => ipcRenderer.invoke(CHANNEL_PANEL_PICK_WALLPAPER),
         saveTheme: (request) => ipcRenderer.invoke(CHANNEL_PANEL_SAVE_THEME, request),
         preview: preview.preview,
-        clearPreview: preview.clear, log,
+        clearPreview: preview.clear, highlight, log,
       });
       if (requested) overlay.open();
     } catch (error) { log(`mount: ${String(error)}`); }

@@ -1,6 +1,6 @@
 import { statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { BLUR_REGIONS, regionAlphas, type GlassRegion } from "./glass.ts";
+import { BLUR_REGIONS, BLURRED_SURFACES, regionAlphas, type GlassRegion } from "./glass.ts";
 import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
 import { linearLuminance, oklabToLinear, toLinear } from "./palette.ts";
 
@@ -34,14 +34,6 @@ const SURFACES: ReadonlyArray<readonly [token: string, region: GlassRegion]> = [
   ["input", "input"],
   ["input-focused", "input"],
 ];
-
-/** Tailwind background utilities of each region's surfaces, which take its backdrop blur. */
-const BLURRED_SURFACES: Record<GlassRegion, readonly string[]> = {
-  frame: [],
-  main: [".bg-background", ".bg-panel"],
-  card: [".bg-card"],
-  input: [".bg-input"],
-};
 
 /** Color token names: "sidebar" or "--color-sidebar". Mirrors colorTokens in theme.schema.json. */
 const COLOR_TOKEN = /^(--color-)?[a-z0-9][a-z0-9-]*$/;
