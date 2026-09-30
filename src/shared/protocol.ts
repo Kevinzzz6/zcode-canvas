@@ -12,6 +12,7 @@ export const CHANNEL_PANEL_APPLY = "zcode-canvas:panel-apply";
 export const CHANNEL_PANEL_PREVIEW = "zcode-canvas:panel-preview";
 export const CHANNEL_PANEL_PICK_WALLPAPER = "zcode-canvas:panel-pick-wallpaper";
 export const CHANNEL_PANEL_SELECT_WALLPAPER = "zcode-canvas:panel-select-wallpaper";
+export const CHANNEL_PANEL_SAVE_THEME = "zcode-canvas:panel-save-theme";
 export const CHANNEL_PANEL_OPEN = "zcode-canvas:panel-open";
 export const CHANNEL_PANEL_CHANGED = "zcode-canvas:panel-changed";
 export const CHANNEL_PANEL_LOG = "zcode-canvas:panel-log";

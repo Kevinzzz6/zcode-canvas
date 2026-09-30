@@ -6,7 +6,7 @@ import { basename, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadLook, readConfig, writeConfigAtomic, type CanvasConfig } from "../src/shared/look.ts";
-import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SELECT_WALLPAPER } from "../src/shared/protocol.ts";
+import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PANEL_SELECT_WALLPAPER } from "../src/shared/protocol.ts";
 import {
   applyPanelInput,
   importWallpaperFile,
@@ -530,6 +530,26 @@ test("selecting a stored wallpaper preserves theme and tuning while refusing pat
   assert.ok(logged.length >= bad.length, "rejected requests are logged before returning errors");
 });
 
+test("the panel saves the look as a theme, and discard drops every personal override", async () => {
+  const home = makeHome();
+  writeConfigAtomic(home, { theme: "mine", radius: 0, glass: { opacity: 0.6 } });
+  assert.equal(readPanelData(home).unsaved, true);
+  const { listeners, reloads } = harness(home, async () => null);
+  const save = listeners.get(CHANNEL_PANEL_SAVE_THEME)!;
+
+  assert.deepEqual(await save(undefined, { name: "Kept" }), { id: "kept", name: "Kept" });
+  assert.deepEqual(readConfig(home), { enabled: true, theme: "kept" });
+  assert.equal(readPanelData(home).unsaved, false);
+  assert.equal(readPanelData(home).effective.glass.opacity, 0.6);
+  assert.equal(reloads.length, 1);
+  for (const bad of [undefined, "Kept", ["Kept"], { name: "Kept", path: "/tmp" }, { name: "" }]) await assert.rejects(async () => save(undefined, bad));
+
+  writeConfigAtomic(home, { theme: "builtinwp", accent: "#123456", wallpaper: { image: "x.png", blur: 3 } });
+  const discarded = applyPanelInput(readConfig(home), { discard: true }, home);
+  assert.deepEqual(discarded, { enabled: true, theme: "builtinwp" });
+  assert.throws(() => applyPanelInput(readConfig(home), { discard: "yes" }, home), /invalid discard/);
+});
+
 test("an asynchronous picker failure is logged before the IPC request rejects", async () => {
   const home = makeHome();
   const { listeners, logged, reloads } = harness(home, async () => { throw new Error("picker unavailable"); });
@@ -542,7 +562,7 @@ test("requests that do not come from the panel window are refused and change not
   const home = makeHome();
   withWallpaperOverride(home);
   const stranger = harness(home, async () => null, () => false);
-  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER]) {
+  for (const channel of [CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER, CHANNEL_PANEL_SAVE_THEME]) {
     await assert.rejects(
       async () => {
         await stranger.listeners.get(channel)!({ sender: { id: 1 } });

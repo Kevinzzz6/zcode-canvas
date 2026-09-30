@@ -9,9 +9,10 @@ import { basename, dirname, extname, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCss, isSafeCssValue } from "../shared/css.ts";
 import { GLASS_REGIONS, type GlassRegion, type GlassRegionSpec } from "../shared/glass.ts";
-import { listThemes, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type GlassSpec, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
+import { listThemes, LOOK_KEYS, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type GlassSpec, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
 import { isPaletteColor, PALETTE_VARIANTS, type PaletteSpec, type PaletteVariant } from "../shared/palette.ts";
-import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
+import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
+import { saveLookAsTheme } from "../shared/save-theme.ts";
 
 /** Image formats the panel accepts; a gif plays its animation in the CSS background. Anything
  *  executable stays out of scope. */
@@ -43,6 +44,8 @@ export interface PanelData {
   /** Region fields that neither the theme nor the user set, so they move with the global glass controls. */
   regionFollows: Record<GlassRegion, { opacity: boolean; blur: boolean }>;
   overrides: { theme: boolean; wallpaper: boolean };
+  /** Any personal look override at all, i.e. something "save as theme" would keep and "discard" would drop. */
+  unsaved: boolean;
   platform: string;
   /** file: URL of the image each mode paints, so the overlay can measure how the fit crops it. */
   imageUrl: Record<Mode, string | null>;
@@ -139,6 +142,7 @@ export function readPanelData(home: string): PanelData {
       wallpaper: !!config.wallpaper && WALLPAPER_CONTROL_KEYS.some((key) =>
         key in config.wallpaper! || !!config.wallpaper?.dark && key in config.wallpaper.dark || !!config.wallpaper?.light && key in config.wallpaper.light),
     },
+    unsaved: LOOK_KEYS.some((key) => config[key] !== undefined),
     platform: process.platform,
     imageUrl: { dark: imageUrl("dark"), light: imageUrl("light") },
     wallpaper: { id: id && wallpapers.some((entry) => entry.id === id) ? id : null, file, fromTheme },
@@ -174,6 +178,8 @@ export interface PanelInput {
   positionY?: unknown;
   reset?: unknown;
   clearOverlay?: unknown;
+  /** `true` removes every personal look override, wallpaper included: the theme exactly as it ships. */
+  discard?: unknown;
   /** Control names whose personal override is removed, so the theme's value applies again. */
   unset?: unknown;
 }
@@ -203,7 +209,7 @@ type RegionInput = keyof typeof REGION_INPUTS;
 const REGION_INPUT_KEYS = Object.keys(REGION_INPUTS) as RegionInput[];
 const PANEL_INPUT_KEYS = new Set([
   "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS,
-  "glassOpacity", "glassBlur", "material", "accent", "radius", "palette", "positionX", "positionY", "reset", "clearOverlay", "unset",
+  "glassOpacity", "glassBlur", "material", "accent", "radius", "palette", "positionX", "positionY", "reset", "clearOverlay", "discard", "unset",
 ]);
 const UNSET_KEYS = new Set(["glassOpacity", "glassBlur", "radius", "positionX", "positionY", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS]);
 
@@ -330,6 +336,10 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid panel request");
   for (const key of Object.keys(input)) if (!PANEL_INPUT_KEYS.has(key)) throw new Error(`unknown panel field ${key}`);
   const next = { ...config };
+  if (input.discard !== undefined) {
+    if (input.discard !== true) throw new Error("invalid discard request");
+    for (const key of LOOK_KEYS) delete next[key];
+  }
   if (input.reset !== undefined) {
     if (input.reset === "theme") {
       delete next.accent;
@@ -560,5 +570,15 @@ export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reloa
     writeConfigAtomic(home, config);
     reload();
     return { ok: true };
+  });
+
+  // `{ name }` saves as a new theme; no name saves into the active user theme.
+  register(CHANNEL_PANEL_SAVE_THEME, (_event, value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid save request");
+    const { name, ...rest } = value as { name?: unknown };
+    if (Object.keys(rest).length) throw new Error("invalid save request");
+    const saved = saveLookAsTheme(home, name);
+    reload();
+    return saved;
   });
 }
