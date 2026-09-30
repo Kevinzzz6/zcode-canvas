@@ -249,7 +249,7 @@ const RADII: ReadonlyArray<readonly [name: string, rem: number]> = [
   ["4xl", 2],
 ];
 
-const ACCENT_TOKENS = ["primary", "brand", "ring", "primary-foreground"] as const;
+export const ACCENT_TOKENS = ["primary", "brand", "ring", "primary-foreground"] as const;
 
 function block(selector: string, declarations: string[]): string {
   return declarations.length ? `${selector} {\n  ${declarations.join(";\n  ")};\n}` : "";

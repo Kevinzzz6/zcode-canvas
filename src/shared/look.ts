@@ -340,16 +340,30 @@ function resolveGlass(glass: GlassSpec): ResolvedGlass {
   return { material: oneOf(glass.material, MATERIALS, "acrylic"), opacity, blur, regions };
 }
 
-/**
- * Merge theme + user config into one look. The config wins field by field; an explicit `null`
- * in the config removes what the theme set (e.g. `"wallpaper": null`).
- */
-export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home: string): ResolvedLook {
+/** The look fields of a theme manifest or config, i.e. everything a theme can be saved with. */
+export const LOOK_KEYS = ["colors", "accent", "radius", "palette", "vars", "wallpaper", "glass", "startup"] as const;
+
+/** Theme and config as layers, bottom first, with file references made absolute. */
+export function lookLayers(config: CanvasConfig, theme: ThemeEntry | null, home: string): LookSpec[] {
   const layers: LookSpec[] = [];
   if (theme) layers.push(withResolvedFiles(theme.manifest, theme.dir));
   layers.push(withResolvedFiles(config, home));
+  return layers;
+}
 
-  const colors: Record<Mode, Record<string, string>> = { dark: {}, light: {} };
+/** Every field but `colors`, merged across layers; still specs, so defaults and "follows" stay implicit. */
+export interface MergedLook {
+  accent: ModeMap<string>;
+  radius: number | null;
+  vars: Record<Mode, Record<string, string>>;
+  wallpaper: Record<Mode, WallpaperSpec | null>;
+  glass: GlassSpec;
+  startup: StartupSpec;
+  /** The topmost palette and the layer it sits in: it replaces the color tokens of the layers below. */
+  palette: { spec: PaletteSpec; layer: number } | null;
+}
+
+export function mergeLayers(layers: LookSpec[]): MergedLook {
   const vars: Record<Mode, Record<string, string>> = { dark: {}, light: {} };
   const wallpaper: Record<Mode, WallpaperSpec | null> = { dark: null, light: null };
   let accent: ModeMap<string> = {};
@@ -384,6 +398,17 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
     if (layer.glass) glass = mergeGlass(glass, layer.glass);
     if (layer.startup) startup = { ...startup, ...layer.startup };
   });
+  return { accent, radius, vars, wallpaper, glass, startup, palette };
+}
+
+/**
+ * Merge theme + user config into one look. The config wins field by field; an explicit `null`
+ * in the config removes what the theme set (e.g. `"wallpaper": null`).
+ */
+export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home: string): ResolvedLook {
+  const layers = lookLayers(config, theme, home);
+  const { accent, radius, vars, wallpaper, glass, startup, palette } = mergeLayers(layers);
+  const colors: Record<Mode, Record<string, string>> = { dark: {}, light: {} };
 
   const resolvedGlass = resolveGlass(glass);
   const resolvedWallpaper = { dark: resolveWallpaper(wallpaper.dark), light: resolveWallpaper(wallpaper.light) };
@@ -448,10 +473,7 @@ export function resolveLook(config: CanvasConfig, theme: ThemeEntry | null, home
   };
 }
 
-const MANIFEST_KEYS = new Set([
-  "$schema", "format", "name", "description", "author", "version", "license", "source", "modes",
-  "colors", "accent", "radius", "palette", "vars", "wallpaper", "glass", "startup",
-]);
+const MANIFEST_KEYS = new Set<string>(["$schema", "format", "name", "description", "author", "version", "license", "source", "modes", ...LOOK_KEYS]);
 
 /** Problems in a theme.json that do not stop it from loading. */
 export function checkManifest(id: string, manifest: ThemeManifest): string[] {
