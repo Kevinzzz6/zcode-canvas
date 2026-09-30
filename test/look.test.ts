@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, type CssValueKind } from "../src/shared/css.ts";
-import { checkManifest, listThemes, loadLook, readConfig, resolveLook, type ThemeEntry } from "../src/shared/look.ts";
+import { checkManifest, listThemes, loadLook, readConfig, resolveLook, type StartupAnimation, type ThemeEntry } from "../src/shared/look.ts";
 
 const theme = (manifest: ThemeEntry["manifest"], dir = "/themes/t"): ThemeEntry => ({ id: "t", dir, builtin: true, manifest });
 
@@ -158,7 +158,17 @@ test("wallpaper and startup logo become file URLs; overlay waits for startup-rea
   assert.match(css, /html::before \{/);
   assert.match(css, /body:not\(\.zcode-startup-ready\)::after \{\n {2}opacity: 0;/);
   assert.match(css, /#loading \.startup-logo-shell \{[\s\S]*url\("file:\/\/\//);
-  assert.match(css, /animation: none/);
+  assert.match(css, /animation-name: zc-startup-none/);
+});
+
+test("startup animations always end", () => {
+  const css = (animation: StartupAnimation) => buildCss(resolveLook({ startup: { animation } }, null, "/home")).css;
+  // ZCode takes the startup screen down on the shell's animationend, so a still logo keeps ZCode's
+  // own animation timing and only swaps the keyframes.
+  const none = css("none");
+  assert.match(none, /@keyframes zc-startup-none \{/);
+  assert.match(none, /#loading \.startup-logo-shell \{[^}]*animation-name: zc-startup-none;/);
+  assert.doesNotMatch(none, /\banimation:/);
 });
 
 test("loadLook reads config and user themes from disk; enabled=false switches off", () => {

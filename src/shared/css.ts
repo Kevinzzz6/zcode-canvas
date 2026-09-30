@@ -10,7 +10,9 @@ import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
 //  - `[data-desktop-window-frame]` (inside #root) is the outermost painted surface, backed by
 //    `--color-background-win-alt` on Windows; the main pane is `bg-background`;
 //  - the startup screen is `#loading > .startup-logo-shell > svg.startup-logo`, `#root` fades in
-//    once `body.zcode-startup-ready` is set.
+//    once `body.zcode-startup-ready` is set. ZCode sets it when React has rendered and the logo
+//    shell's animationend has come, which it only listens for once its bundle runs, with a 1s
+//    fallback.
 // Popovers, menus and dialogs portal to <body>, outside #root, so they keep opaque colors.
 // Selectors carry an id so they outrank ZCode's own rules regardless of sheet order.
 
@@ -420,13 +422,20 @@ export function buildCss(look: ResolvedLook): CssResult {
   } else if (startup.logoSize !== 96) {
     rules.push(block("#loading .startup-logo-shell", [`width: ${startup.logoSize}px`, `height: ${startup.logoSize}px`]));
   }
+  // Every startup animation must end, and not before ZCode listens: until its animationend comes,
+  // ZCode keeps the startup screen up.
   if (startup.animation === "fade") {
     rules.push(
       "@keyframes zc-startup-fade { from { opacity: 0 } to { opacity: 1 } }",
       block("#loading .startup-logo-shell", ["transform: none", "animation: zc-startup-fade 0.6s ease forwards"]),
     );
   } else if (startup.animation === "none") {
-    rules.push(block("#loading .startup-logo-shell", ["transform: none", "opacity: 1", "animation: none"]));
+    // Still, but on ZCode's own animation timing: `animation: none`, or an animation that ends
+    // early, leaves the screen waiting for the 1s fallback.
+    rules.push(
+      "@keyframes zc-startup-none { to { opacity: 1 } }",
+      block("#loading .startup-logo-shell", ["transform: none", "opacity: 1", "animation-name: zc-startup-none"]),
+    );
   }
 
   const css = rules.filter(Boolean).join("\n\n");
