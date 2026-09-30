@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { test } from "node:test";
+import { basename, join } from "node:path";
+import { test, type TestContext } from "node:test";
 import { readConfig } from "../src/shared/look.ts";
 import { importWallpaper } from "../src/cli/wallpaper.ts";
 
@@ -73,4 +74,40 @@ test("rejects traversal and unsupported project types", () => {
   writeFileSync(join(project, "project.json"), JSON.stringify({ type: "web", preview: "x.png" }));
   writeFileSync(join(project, "x.png"), "x");
   assert.doesNotThrow(() => importWallpaper(project, join(root, "home"), true));
+});
+
+const tag = (content: string) => createHash("sha256").update(content).digest("hex").slice(0, 12);
+
+function makeProject(root: string, dirName: string, file: string, content: string): string {
+  const project = join(root, dirName);
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, "project.json"), JSON.stringify({ type: "image", file }));
+  writeFileSync(join(project, file), content);
+  return project;
+}
+
+test("stored names always pass the store's flat-name check, like panel imports", () => {
+  const root = mkdtempSync(join(tmpdir(), "we-names-"));
+  const home = join(root, "home");
+  // A leading dot or underscore, or "..", used to produce a name the store itself would refuse.
+  assert.equal(basename(importWallpaper(makeProject(root, ".hidden", "main.png", "a"), home).destination), `hidden-main-${tag("a")}.png`);
+  assert.equal(basename(importWallpaper(makeProject(root, "_x..y", "main.png", "b"), home).destination), `x.y-main-${tag("b")}.png`);
+  // The extension is stripped by its original spelling, as the panel does.
+  assert.equal(basename(importWallpaper(makeProject(root, "caps", "MAIN.PNG", "c"), home).destination), `caps-MAIN-${tag("c")}.png`);
+  assert.equal(basename(importWallpaper(makeProject(root, "壁纸", "图.png", "d"), home).destination), `wallpaper-wallpaper-${tag("d")}.png`);
+});
+
+test("a symlink planted at the CLI destination is refused, not written through", (t: TestContext) => {
+  const root = mkdtempSync(join(tmpdir(), "we-symlink-"));
+  const home = join(root, "home");
+  const project = makeProject(root, "project", "main.png", "x");
+  mkdirSync(join(home, "imports", "wallpaper"), { recursive: true });
+  writeFileSync(join(root, "secret.txt"), "config data");
+  try {
+    symlinkSync(join(root, "secret.txt"), join(home, "imports", "wallpaper", `project-main-${tag("x")}.png`));
+  } catch (error) {
+    return t.skip(`symlinks need privileges here: ${String(error)}`);
+  }
+  assert.throws(() => importWallpaper(project, home), { message: /escapes the store/ });
+  assert.equal(readFileSync(join(root, "secret.txt"), "utf8"), "config data");
 });

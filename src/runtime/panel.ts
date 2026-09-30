@@ -3,9 +3,8 @@
 //
 // The panel selects a theme, stores wallpaper images, and applies validated personal appearance
 // controls. Clearing an image restores the theme's wallpaper; resetting controls keeps the image.
-import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, extname, resolve, sep } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCss, isSafeCssValue } from "../shared/css.ts";
 import { GLASS_REGIONS, type GlassRegion, type GlassRegionSpec } from "../shared/glass.ts";
@@ -13,10 +12,7 @@ import { listThemes, LOOK_KEYS, MATERIALS, readConfig, resolveLook, WALLPAPER_FI
 import { isPaletteColor, PALETTE_VARIANTS, type PaletteSpec, type PaletteVariant } from "../shared/palette.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
 import { saveLookAsTheme } from "../shared/save-theme.ts";
-
-/** Image formats the panel accepts; a gif plays its animation in the CSS background. Anything
- *  executable stays out of scope. */
-export const WALLPAPER_EXTENSIONS: readonly string[] = [".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg", ".gif"];
+import { storedWallpaperPath, storeWallpaper, WALLPAPER_EXTENSIONS, wallpaperDisplayName, withUnobscuredOverlay } from "../shared/wallpaper-store.ts";
 
 export interface PanelThemeInfo {
   id: string;
@@ -322,11 +318,6 @@ function unsetControls(next: CanvasConfig, keys: unknown, home: string): void {
   else next.wallpaper = { ...copyWallpaper(withoutPosition), position: `${x}% ${y}%` };
 }
 
-function imageWithUnobscuredOverlay(wallpaper: WallpaperLayer): WallpaperLayer {
-  if (wallpaper.dim !== undefined || wallpaper.dark?.dim !== undefined || wallpaper.light?.dim !== undefined) return wallpaper;
-  return { ...wallpaper, dim: 0 };
-}
-
 /**
  * Apply one panel request to the config. Only the fields present in the request change: picking a
  * theme never clears the wallpaper override, and wallpaper settings never clear the theme. Throws
@@ -439,61 +430,13 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
   return next;
 }
 
-/**
- * Where a stored wallpaper file may live. Flat white-listed names only, and when something already
- * exists at the path its real location must still be inside the store — a symlink planted there
- * must never be written through.
- */
-export function storedWallpaperPath(home: string, fileName: string): string {
-  if (typeof fileName !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fileName) || fileName.includes(".."))
-    throw new Error("invalid wallpaper file name");
-  const root = resolve(home, "imports", "wallpaper");
-  const candidate = resolve(root, fileName);
-  if (dirname(candidate) !== root) throw new Error("wallpaper path escapes the store");
-  let realRoot: string;
-  try {
-    realRoot = realpathSync(root);
-  } catch {
-    return candidate;
-  }
-  try {
-    const real = realpathSync(candidate);
-    if (real !== realRoot && !real.startsWith(realRoot + sep)) throw new Error("wallpaper path escapes the store");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  return candidate;
-}
-
-function safeName(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-}
-
-/** Short content digest in a stored wallpaper's name, so two different images that happen to share
- *  a file name never overwrite each other — and re-picking the same image reuses the same file. */
-function contentTag(file: string): string {
-  return createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 12);
-}
-
-/** The stored name without its content tag, e.g. "pic-1a2b….jpg" → "pic.jpg". Old names pass through. */
-export function wallpaperDisplayName(fileName: string): string {
-  return fileName.replace(/-[0-9a-f]{12}(?=\.[^.]+$)/, "");
-}
-
 /** Copy a main-process-picked image into the Canvas store and return its stored path. */
 export function importWallpaperFile(source: string, home: string): string {
   const extension = extname(source).toLowerCase();
   if (!WALLPAPER_EXTENSIONS.includes(extension))
     throw new Error(`不支持的壁纸格式 "${extension || basename(source)}"，支持 ${WALLPAPER_EXTENSIONS.join(" / ")}`);
   if (!existsSync(source) || !statSync(source).isFile()) throw new Error(`所选文件不可用: ${basename(source)}`);
-  mkdirSync(resolve(home, "imports", "wallpaper"), { recursive: true });
-  // Strip the extension by its original spelling, so PIC.PNG becomes pic's "PIC.png", not "PIC.PNG.png".
-  const stem = safeName(basename(source, extname(source))) || "wallpaper";
-  // The content tag is part of the name, so a file already sitting there has the same bytes and
-  // the copy can be skipped. Throws on a hostile name or a symlink planted at the destination.
-  const destination = storedWallpaperPath(home, `${stem}-${contentTag(source)}${extension}`);
-  if (!existsSync(destination)) copyFileSync(source, destination);
-  return destination;
+  return storeWallpaper(source, home);
 }
 
 export interface PanelIpc {
@@ -554,7 +497,7 @@ export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reloa
     if (!source) return { canceled: true };
     const destination = importWallpaperFile(source, home);
     const config = readConfig(home);
-    config.wallpaper = imageWithUnobscuredOverlay({ ...(config.wallpaper ?? {}), image: destination });
+    config.wallpaper = withUnobscuredOverlay({ ...(config.wallpaper ?? {}), image: destination });
     writeConfigAtomic(home, config);
     reload();
     return { canceled: false, file: wallpaperDisplayName(basename(destination)) };
@@ -566,7 +509,7 @@ export function registerPanelHandlers({ home, ipc, log, pickWallpaperFile, reloa
     const file = storedWallpaperPath(home, value);
     if (!statSync(file).isFile()) throw new Error("stored wallpaper is not a file");
     const config = readConfig(home);
-    config.wallpaper = imageWithUnobscuredOverlay({ ...(config.wallpaper ?? {}), image: file });
+    config.wallpaper = withUnobscuredOverlay({ ...(config.wallpaper ?? {}), image: file });
     writeConfigAtomic(home, config);
     reload();
     return { ok: true };

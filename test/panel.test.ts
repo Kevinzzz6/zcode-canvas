@@ -13,10 +13,9 @@ import {
   listStoredWallpapers,
   readPanelData,
   registerPanelHandlers,
-  storedWallpaperPath,
-  wallpaperDisplayName,
   type PanelIpc,
 } from "../src/runtime/panel.ts";
+import { storedWallpaperPath, wallpaperDisplayName } from "../src/shared/wallpaper-store.ts";
 
 /** The content tag importWallpaperFile puts into stored wallpaper names. */
 const tag = (data: string): string => createHash("sha256").update(data).digest("hex").slice(0, 12);

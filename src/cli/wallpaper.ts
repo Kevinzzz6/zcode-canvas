@@ -1,10 +1,8 @@
-import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { readConfig, writeConfigAtomic, type CanvasConfig } from "../shared/look.ts";
+import { storeWallpaper, WALLPAPER_EXTENSIONS, withUnobscuredOverlay } from "../shared/wallpaper-store.ts";
 
-/** Image formats Chromium renders from a CSS background url; a gif simply plays its animation there. */
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif", ".svg", ".gif"]);
 const PREVIEW_TYPES = new Set(["scene", "video", "web"]);
 
 export interface WallpaperImportResult {
@@ -27,14 +25,10 @@ function projectFile(projectDir: string, value: unknown, label: string): string 
   if (!rel || rel.startsWith("..") || isAbsolute(rel)) fail(`${label} 路径超出项目目录`);
   if (!existsSync(file) || !statSync(file).isFile()) fail(`${label} 文件不存在: ${value}`);
   const extension = extname(file).toLowerCase();
-  if (!IMAGE_EXTENSIONS.has(extension)) {
-    fail(`${label} 不是支持的图片格式（支持 png/jpg/jpeg/webp/avif/svg/gif）: ${value}`);
+  if (!WALLPAPER_EXTENSIONS.includes(extension)) {
+    fail(`${label} 不是支持的图片格式（支持 ${WALLPAPER_EXTENSIONS.map((ext) => ext.slice(1)).join("/")}）: ${value}`);
   }
   return file;
-}
-
-function safeName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "wallpaper";
 }
 
 /** Import only a user-selected, local Wallpaper Engine image or preview. */
@@ -63,20 +57,9 @@ export function importWallpaper(projectDirectory: string, home: string, preview 
     fail(`不支持的项目类型 ${JSON.stringify(manifest.type)}；仅支持 type=image，或 scene/video/web 的 --preview`);
   }
 
-  const importDir = join(home, "imports", "wallpaper");
-  mkdirSync(importDir, { recursive: true });
-  // The content tag keeps a re-import with different bytes from silently overwriting the old file,
-  // and an unchanged re-import from duplicating it.
-  const tag = createHash("sha256").update(readFileSync(source)).digest("hex").slice(0, 12);
-  const extension = extname(source).toLowerCase();
-  const destination = join(importDir, `${safeName(basename(projectDir))}-${safeName(basename(source, extension))}-${tag}${extension}`);
-  if (!existsSync(destination)) copyFileSync(source, destination);
-
+  const destination = storeWallpaper(source, home, [basename(projectDir)]);
   const config = readConfig(home);
-  config.wallpaper = { ...(config.wallpaper ?? {}), image: destination };
-  // New imports use brightness alone; a deliberate legacy overlay remains intact.
-  if (config.wallpaper.dim === undefined && config.wallpaper.dark?.dim === undefined && config.wallpaper.light?.dim === undefined)
-    config.wallpaper.dim = 0;
+  config.wallpaper = withUnobscuredOverlay({ ...(config.wallpaper ?? {}), image: destination });
   writeConfigAtomic(home, config);
   return { source, destination, config };
 }
