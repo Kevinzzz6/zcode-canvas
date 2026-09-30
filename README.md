@@ -125,6 +125,10 @@ npm install && npm run build && npm link
 - **滑杆**：拖动时实时预览，松手才保存，并同步到所有窗口。点数值可以直接输入，比如 `18px`、`1.5×`。
 - **简单 / 高级**：简单模式只留常用调节，高级模式展开主题细节、分区玻璃和壁纸细节。
 
+<p align="center"><img src="docs/images/palette.webp" alt="智能配色：从壁纸取出的几个颜色里点一个，悬停各个风格就能预览，点“鲜艳”应用后，再换粉色、紫色、金色，整套界面和面板的强调色跟着变" width="70%"></p>
+
+<p align="center"><sub>点一个从壁纸里取出的颜色，悬停就能预览各种风格；换个颜色，整套界面跟着变</sub></p>
+
 **留下来**
 
 - **保存为主题**：有个人修改时，面板底部会出现保存条，可以存成新主题或写回当前主题，见[做一个自己的主题](#做一个自己的主题)。
@@ -283,6 +287,15 @@ zcode-canvas help                                 # 所有命令和可设置的�
 ## 更新与卸载
 
 官方更新会整体替换 `app.asar`，补丁也就随之消失，ZCode 回到官方原样，不会损坏。重新运行一次 `zcode-canvas apply` 就能恢复，只需要几秒。主题和配置都在 `~/.zcode-canvas/`，不受更新影响。
+
+升级 Canvas 本身也要再 `apply` 一次。运行时是在 `apply` 时装进 `~/.zcode-canvas/` 的，只更新 npm 包不会换掉它：
+
+```sh
+npm install -g zcode-canvas@latest
+zcode-canvas apply             # 换上新的运行时，重启 ZCode 后生效
+```
+
+卸载：
 
 ```sh
 zcode-canvas restore           # 还原 app.asar，和官方文件逐字节一致
