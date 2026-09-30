@@ -148,6 +148,20 @@ npm install && npm run build && npm link
 
 <table>
 <tr>
+<td width="50%"><img src="docs/images/theme-yorha-light.webp" alt="尼尔 · 寄叶，亮色：暗角沙色纸面、细网格、45° 构造线、上下两条点阵分隔带，右侧淡淡的寄叶徽标"></td>
+<td width="50%"><img src="docs/images/theme-yorha-dark.webp" alt="尼尔 · 寄叶，暗色：炭黑底配沙色线条，同一套构图"></td>
+</tr>
+<tr>
+<td colspan="2" align="center"><b>尼尔 · 寄叶</b> <code>yorha</code><br><sub>照 NieR:Automata 的系统设置界面做：中心亮、四周压暗的沙色纸面，细网格、构造线和点阵分隔带，全直角无阴影，右侧一枚几乎看不出的寄叶徽标。暗色是同一套构图的炭黑版。</sub></td>
+</tr>
+</table>
+
+<img src="docs/images/splash-yorha.webp" alt="尼尔 · 寄叶的启动画面：黑底细网格上的寄叶徽标、YoRHa 字标和 For the Glory of Mankind" width="100%">
+
+<p align="center"><sub>启动画面还原游戏的开机画面，淡入后才是沙色界面。非官方同人作品，寄叶徽标的权利归 SQUARE ENIX，不属于 MIT 许可，见 <a href="NOTICE.md">NOTICE.md</a>。</sub></p>
+
+<table>
+<tr>
 <td width="50%"><img src="docs/images/theme-endfield-dark.webp" alt="终末地 · 谷地黄，暗色"></td>
 <td width="50%"><img src="docs/images/theme-endfield-light.webp" alt="终末地 · 谷地黄，亮色"></td>
 </tr>
@@ -177,6 +191,7 @@ npm install && npm run build && npm link
 |---|---|---|
 | `endfield` | 终末地 · 谷地黄 | 改编自 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield) |
 | `endfield-wuling` | 终末地 · 武陵青 | 同上，青色版本 |
+| `yorha` | 尼尔 · 寄叶 | 仿 NieR:Automata 系统设置界面，带寄叶徽标水印和游戏开机画面；非官方同人作品，徽标不属于 MIT，见 [NOTICE.md](NOTICE.md) |
 | `sakura` | 樱 | 樱粉渐变，粉色强调 |
 | `aurora` | 极光 | 深蓝夜空与极光渐变壁纸，青色强调，适合暗色 |
 | `eye-care` | 护眼 | 偏暖低亮的底色配高对比正文，亮暗都有；配色改编自 [zcode-eye-care](https://github.com/VoodooB0Ys/zcode-eye-care) |
@@ -347,6 +362,7 @@ npm run build
 - `node scripts/runtime-smoke.mjs` 会在隔离的 Electron 实例里验证多窗口同步、辅助窗口排除和 IPC 越界拒绝，不打开调试端口。
 - `node scripts/overlay-smoke.mjs` 会在开发沙箱里验证真实外观中心的点选、预览与提交、失败恢复、入口拖动与隐藏等行为，并保存截图。它只接受明确指定的沙箱目录，临时改动的配置会在结束时还原。
 - `endfield` 两套主题的壁纸和启动字标由 `npm run build:endfield` 生成，生成结果已经提交。只有想换地形（`--seed <n>`）或改排版时才需要重新运行。
+- `yorha` 主题的壁纸和启动画面由 `npm run build:yorha` 生成，生成结果已经提交。加 `-- --no-emblem` 会生成不带徽标的版本。
 
 </details>
 
@@ -362,6 +378,8 @@ npm run build
 [dream-work-theme](https://github.com/xxxhh336/dream-work-theme)。
 
 `endfield` 主题改编自 DSH 主题 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield)（MIT），详见 [NOTICE.md](NOTICE.md)。
+
+`yorha` 主题是 NieR:Automata 的非官方同人作品，与 SQUARE ENIX、PlatinumGames 无关。寄叶徽标的权利归 SQUARE ENIX 所有，不适用本项目的 MIT 许可，详见 [NOTICE.md](NOTICE.md)。
 
 本项目与 ZCode 官方无关。修改 `app.asar` 的风险由使用者自行承担。
 
