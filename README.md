@@ -68,7 +68,7 @@ npm install && npm run build && npm link
 |---|---|
 | Windows | ZCode 装在 Program Files 这类受保护目录时，要用管理员身份打开终端。 |
 | Linux | 用 `sudo zcode-canvas apply`。配置仍然放在你自己的用户目录下。 |
-| macOS | 先启动过一次 ZCode 再 `apply`。之后可能需要重新登录一次。 |
+| macOS | 建议先启动过一次 ZCode 再 `apply`（真机实测：登录和钥匙串不受影响）。 |
 
 如果 `apply` 时 ZCode 正在运行（只有 Windows 会遇到），Canvas 会先准备好补丁。请从托盘**彻底退出** ZCode，补丁会自动换上，再打开 ZCode 就能看到效果。所以直接在 ZCode 自带的终端里运行也没问题。各平台的详细说明见[平台支持](#平台支持)。
 
@@ -256,6 +256,15 @@ zcode-canvas restore --purge   # 同时删除 ~/.zcode-canvas（包括你的主�
 </details>
 
 <details>
+<summary><b>macOS 上毛玻璃材质的映射和其他平台不一样</b></summary>
+
+<br>
+
+macOS 的 ZCode 窗口官方就带 under-window vibrancy：`glass.material` 保持默认（`acrylic`）时沿用官方原生材质观感，不会透出壁纸；设为 `none` 会关闭 vibrancy，界面透明区域改为直接透出窗口后方的内容（真机上表现为透出少量后方颜色）。想透出壁纸，调低 `glass.opacity` 即可。
+
+</details>
+
+<details>
 <summary><b>Linux 上毛玻璃没有效果</b></summary>
 
 <br>
@@ -265,11 +274,11 @@ Linux 的窗口透明依赖桌面合成器。合成器不支持时，毛玻璃�
 </details>
 
 <details>
-<summary><b>macOS 上 apply 之后要重新登录</b></summary>
+<summary><b>macOS 上 apply 会影响登录或钥匙串吗</b></summary>
 
 <br>
 
-修改 `.app` 会破坏官方代码签名，Canvas 会自动做 ad-hoc 重签名，保存的登录凭据可能因此失效。`restore` 会把 `app.asar` 逐字节还原，但签名仍然是 ad-hoc 的。想完全回到官方签名，重新安装一次 ZCode 即可。
+修改 `.app` 会破坏官方代码签名，Canvas 会自动做 ad-hoc 重签名，随后自检签名并清掉残留的 quarantine 标记。真机实测（macOS Tahoe 25.4）：重签后启动正常，登录态、钥匙串和历史会话都不受影响——ZCode 的凭据存放在本地文件里，不依赖钥匙串。`restore` 会把 `app.asar` 逐字节还原，但签名仍然是 ad-hoc 的；想完全回到官方签名，重新安装一次 ZCode 即可。
 
 </details>
 
@@ -301,7 +310,7 @@ Linux 的窗口透明依赖桌面合成器。合成器不支持时，毛玻璃�
 
 - **Windows**：ZCode 装在受保护目录时，需要用管理员身份运行终端。ZCode 正在运行时 `app.asar` 会被占用，Canvas 会先准备好补丁，再启动一个后台小进程等 ZCode 退出后替换。
 - **Linux**：ZCode 装在 `/opt/ZCode`，属于 root，所以 `apply` 需要 sudo。Canvas 会识别 `SUDO_USER`，把运行时和配置装到**你的**用户目录而不是 `/root`，文件所有权也会交还给你。如果 sudo 找不到命令，可以用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。文件可以随时替换，重启 ZCode 后生效。
-- **macOS**：ZCode.app 不可写时加 `sudo`。请先启动过一次 ZCode 再 `apply`，已被系统放行的应用重签名后才能正常打开。重签名的影响见[常见问题](#常见问题)。
+- **macOS**：ZCode.app 不可写时加 `sudo`。建议先启动过一次 ZCode 再 `apply`——macOS Tahoe 实测带着 quarantine 标记也能正常打开，Canvas 重签后也会顺手清掉它，但旧系统版本可能仍要求先放行一次。重签名的影响见[常见问题](#常见问题)。
 - ZCode 装在非默认位置时，可以用 `--zcode <目录>` 指定。
 
 </details>
