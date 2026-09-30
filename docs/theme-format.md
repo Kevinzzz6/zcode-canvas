@@ -123,7 +123,8 @@ my-theme/
     }
   },
 
-  // 启动画面。animation 为 none 时 logo 是静止的，停留时间与官方动画相同。
+  // 启动画面。系统开启「减少动画」时 logo 一律静止显示，与官方一致；
+  // animation 为 none 时也是静止的，停留时间与官方动画相同。
   "startup": {
     "background": null,         // 启动画面背景，颜色或渐变
     "logo": "logo.png",         // 替换中间的 ZCode logo

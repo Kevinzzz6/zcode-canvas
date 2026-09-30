@@ -161,14 +161,20 @@ test("wallpaper and startup logo become file URLs; overlay waits for startup-rea
   assert.match(css, /animation-name: zc-startup-none/);
 });
 
-test("startup animations always end", () => {
+test("startup animations always end, and motion gives way to reduced motion", () => {
   const css = (animation: StartupAnimation) => buildCss(resolveLook({ startup: { animation } }, null, "/home")).css;
+  // pop is ZCode's own animation, which already honors reduced motion.
+  assert.equal(css("pop"), "");
+  assert.match(
+    css("fade"),
+    /@media \(prefers-reduced-motion: no-preference\) \{\n {2}#loading \.startup-logo-shell \{\n {4}transform: none;\n {4}animation: zc-startup-fade 0\.6s ease forwards;\n {2}\}\n\}/,
+  );
   // ZCode takes the startup screen down on the shell's animationend, so a still logo keeps ZCode's
   // own animation timing and only swaps the keyframes.
   const none = css("none");
   assert.match(none, /@keyframes zc-startup-none \{/);
   assert.match(none, /#loading \.startup-logo-shell \{[^}]*animation-name: zc-startup-none;/);
-  assert.doesNotMatch(none, /\banimation:/);
+  assert.doesNotMatch(none, /\banimation:|prefers-reduced-motion/);
 });
 
 test("loadLook reads config and user themes from disk; enabled=false switches off", () => {

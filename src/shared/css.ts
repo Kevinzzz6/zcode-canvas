@@ -12,7 +12,7 @@ import type { Mode, ResolvedLook, ResolvedWallpaper } from "./look.ts";
 //  - the startup screen is `#loading > .startup-logo-shell > svg.startup-logo`, `#root` fades in
 //    once `body.zcode-startup-ready` is set. ZCode sets it when React has rendered and the logo
 //    shell's animationend has come, which it only listens for once its bundle runs, with a 1s
-//    fallback.
+//    fallback; under reduced motion it shows the shell still and waits for React alone.
 // Popovers, menus and dialogs portal to <body>, outside #root, so they keep opaque colors.
 // Selectors carry an id so they outrank ZCode's own rules regardless of sheet order.
 
@@ -255,6 +255,11 @@ function block(selector: string, declarations: string[]): string {
   return declarations.length ? `${selector} {\n  ${declarations.join(";\n  ")};\n}` : "";
 }
 
+/** A rule that moves things, kept out of the way when the system asks for reduced motion. */
+function unlessReducedMotion(rule: string): string {
+  return rule ? `@media (prefers-reduced-motion: no-preference) {\n${rule.replace(/^/gm, "  ")}\n}` : "";
+}
+
 export interface CssResult {
   css: string;
   warnings: string[];
@@ -427,7 +432,7 @@ export function buildCss(look: ResolvedLook): CssResult {
   if (startup.animation === "fade") {
     rules.push(
       "@keyframes zc-startup-fade { from { opacity: 0 } to { opacity: 1 } }",
-      block("#loading .startup-logo-shell", ["transform: none", "animation: zc-startup-fade 0.6s ease forwards"]),
+      unlessReducedMotion(block("#loading .startup-logo-shell", ["transform: none", "animation: zc-startup-fade 0.6s ease forwards"])),
     );
   } else if (startup.animation === "none") {
     // Still, but on ZCode's own animation timing: `animation: none`, or an animation that ends

@@ -35,7 +35,7 @@
 | Tailwind 背景工具类 `.bg-background`、`.bg-panel`、`.bg-card`、`.bg-input`（毛玻璃模糊挂在它们上面） | ZCode 组件的 className | `src/shared/css.ts` 的 `BLURRED_SURFACES` | 对应区域的模糊失效，透明度不受影响 |
 | 窗口外框 `[data-desktop-window-frame]` | `packages/ui/src/DesktopWindowFrame.tsx` | `src/shared/css.ts` | 毛玻璃失效 |
 | 启动画面 `#loading`、`.startup-logo-shell`、`body.zcode-startup-ready` | `packages/desktop/src/renderer/index.html` | `src/shared/css.ts` | 启动画面定制失效 |
-| 启动画面的退场时机：React 首次渲染完成、且收到 `.startup-logo-shell` 的 `animationend` 后才移除；这段脚本构建后并入主程序包，包开始执行后才开始监听，等不到就 1 秒兜底 | `packages/desktop/src/renderer/index.html` 的内联脚本与样式 | `src/shared/css.ts` 的启动动画 | 启动画面多停留最多 1 秒，或动画没播完就被撤下 |
+| 启动画面的退场时机：React 首次渲染完成、且收到 `.startup-logo-shell` 的 `animationend` 后才移除；这段脚本构建后并入主程序包，包开始执行后才开始监听，等不到就 1 秒兜底；减少动画模式下不等动画，由官方样式让 logo 静止 | `packages/desktop/src/renderer/index.html` 的内联脚本与样式 | `src/shared/css.ts` 的启动动画 | 启动画面多停留最多 1 秒，或动画没播完就被撤下 |
 | 主窗口页面路径 `out/renderer/index.html`，其他窗口带 `windowKind` 参数 | `packages/desktop/src/main` 中创建窗口的代码 | `src/runtime/preload.ts`、`src/runtime/main.ts` 的 `senderIsMainWindow` | 样式不注入，或注入到错误的窗口 |
 | 主渲染页允许 preload 向文档根节点追加自有 Shadow DOM；入口默认位于右侧、底部上方约 220px 的几何假设 | 主渲染页与窗口布局（不查询状态栏、编辑器或通知容器） | `src/runtime/overlay.ts` | 浮层可能无法显示，或入口与宿主内容重叠；可拖动、隐藏、重置，快捷键/托盘仍可唤起 |
 | 应用菜单整体重建时调用 `Menu.setApplicationMenu` | `desktopApplicationMenu.ts` 的 `rebuildApplicationMenu` | `src/runtime/main.ts` 的 `wrapApplicationMenu` | 菜单入口消失 |
