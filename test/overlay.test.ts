@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { createPreviewController } from "../src/runtime/preview-controller.ts";
 import { diagnose, displayNumber, formatKnob, fromSlider, inputKey, parseKnobInput, positionSlack, positionValue, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type DiagnosisInput } from "../src/runtime/overlay-preview.ts";
 import type { ResolvedWallpaper } from "../src/shared/look.ts";
+import { positionAxes } from "../src/shared/position.ts";
 import { isMainWindowUrl } from "../src/shared/window.ts";
 
 const mainUrl = "file:///C:/ZCode/resources/app/out/renderer/index.html";
@@ -28,9 +29,19 @@ test("position percentages and brightness ratios use their respective display sc
 });
 
 test("position controls preserve CSS keyword axis semantics", () => {
-  for (const [value, x, y] of [["top", 50, 0], ["right", 100, 50], ["top left", 0, 0], ["center bottom", 50, 100], ["25% 75%", 25, 75]] as const) {
-    assert.equal(positionValue(value, 0), x);
-    assert.equal(positionValue(value, 1), y);
+  for (const [value, x, y] of [["top", 50, 0], ["right", 100, 50], ["top left", 0, 0], ["center bottom", 50, 100], ["25% 75%", 25, 75], ["TOP RIGHT", 100, 0], ["bottom center", 50, 100]] as const) {
+    assert.equal(positionValue(value, 0), x, value);
+    assert.equal(positionValue(value, 1), y, value);
+  }
+});
+
+test("sliders show a position the panel would replace as centered, not a clamped or reordered guess", () => {
+  // The panel keeps only positions it can represent when the other axis moves; the sliders must
+  // show those same axes, or dragging one would silently move the other.
+  for (const [value, x, y] of [["150% 20%", 50, 50], ["calc(50% - 10px) 0%", 50, 50], ["10px 20px", 50, 50], ["left 10% top 20%", 50, 50], ["top 30%", 0, 30]] as const) {
+    assert.equal(positionValue(value, 0), x, value);
+    assert.equal(positionValue(value, 1), y, value);
+    assert.deepEqual(positionAxes(value) ?? [50, 50], [x, y], value);
   }
 });
 

@@ -1,5 +1,6 @@
 import { mainCappedByFrame, type GlassRegion } from "../shared/glass.ts";
 import type { ResolvedLook, ResolvedWallpaper, WallpaperFit } from "../shared/look.ts";
+import { positionAxes } from "../shared/position.ts";
 
 /** UI control metadata. API names and ranges are validated again by the main process. */
 export const knobs = {
@@ -129,22 +130,9 @@ export function formatKnob(key: Knob, value: number): string {
   return `${Math.round(value)}${knobs[key].unit}`;
 }
 
+/** The slider value for one axis; a position the sliders cannot represent shows as centered. */
 export function positionValue(position: string | undefined, axis: 0 | 1): number {
-  if (!position || position === "center") return 50;
-  const values = position.trim().split(/\s+/);
-  const vertical = (part: string) => part === "top" || part === "bottom";
-  const reordered = values.length === 2 && vertical(values[0] ?? "") && !vertical(values[1] ?? "")
-    ? [values[1], values[0]] : values;
-  let part = reordered[axis];
-  if (values.length === 1) {
-    if (vertical(values[0] ?? "")) part = axis === 0 ? "center" : values[0];
-    else if (axis === 1) part = "center";
-  }
-  if (part === "center" || part === undefined) return 50;
-  if (part === "left" || part === "top") return 0;
-  if (part === "right" || part === "bottom") return 100;
-  const match = /^(\d+(?:\.\d+)?)%$/.exec(part ?? "");
-  return match ? Math.max(0, Math.min(100, Number(match[1]))) : 50;
+  return positionAxes(position)?.[axis] ?? 50;
 }
 
 export function knobValue(look: ResolvedLook, wallpaper: ResolvedWallpaper | null, key: Knob): number {
