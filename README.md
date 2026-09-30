@@ -20,7 +20,7 @@
 
 <table>
 <tr>
-<td width="33%" valign="top"><b>主题</b><br>一套主题就是一个文件夹，装着 <code>theme.json</code> 和图片。复制给别人就能用。</td>
+<td width="33%" valign="top"><b>主题</b><br>在面板里调好，一键存成主题。一套主题就是一个文件夹，装着 <code>theme.json</code> 和图片，复制给别人就能用。</td>
 <td width="33%" valign="top"><b>壁纸</b><br>支持 png、jpg、webp、avif、svg，GIF 动图会直接播放。可以调模糊、缩放、位置和色彩。</td>
 <td width="33%" valign="top"><b>毛玻璃</b><br>界面半透明，透出壁纸或系统原生材质（Windows acrylic / mica、macOS vibrancy）。侧栏、主区域、卡片、输入框可以分别调透明度和模糊。</td>
 </tr>
@@ -35,7 +35,7 @@
 
 - **不改原有字节**：补丁只往 `app.asar` 里追加文件，`restore` 能还原出和官方逐字节一致的文件。
 - **出错也不影响 ZCode**：Canvas 任何部分出问题，最坏结果只是外观没生效，ZCode 照常启动。
-- **没有后台进程**：不开调试端口，不常驻进程，不联网。
+- **不留常驻进程**：不开调试端口，不联网。唯一的例外是 Windows 上 ZCode 正在运行时 `apply`：会有一个一次性小进程等 ZCode 退出、换好文件后立即结束。
 - **官方更新照常进行**：更新后只是回到官方原样，重新 `apply` 一次即可。
 
 ## 快速开始
@@ -64,13 +64,7 @@ npm install && npm run build && npm link
 
 </details>
 
-| 平台 | `apply` 时要注意 |
-|---|---|
-| Windows | ZCode 装在 Program Files 这类受保护目录时，要用管理员身份打开终端。 |
-| Linux | 用 `sudo zcode-canvas apply`。配置仍然放在你自己的用户目录下。 |
-| macOS | 建议先启动过一次 ZCode 再 `apply`（真机实测：登录和钥匙串不受影响）。 |
-
-如果 `apply` 时 ZCode 正在运行（只有 Windows 会遇到），Canvas 会先准备好补丁。请从托盘**彻底退出** ZCode，补丁会自动换上，再打开 ZCode 就能看到效果。所以直接在 ZCode 自带的终端里运行也没问题。各平台的详细说明见[平台支持](#平台支持)。
+Windows 上 ZCode 装在受保护目录时要用管理员终端，Linux 用 `sudo`；在 Windows 上 ZCode 正在运行时 `apply`，要从托盘**彻底退出**一次 ZCode 才会换上补丁。其他细节见[平台支持](#平台支持)。
 
 <details>
 <summary><b>想让 Agent 帮你装？</b>把这段话发给它</summary>
@@ -114,6 +108,7 @@ npm install && npm run build && npm link
 - **调节**：拖动滑杆就能实时预览，松手后才保存，并同步到所有窗口。点击数值可以直接输入，比如 `18px`、`1.5×`。
 - **为什么没变化**：某项调节被其他设置挡住时，面板会就近说明原因。比如界面完全不透明时，壁纸就看不到。
 - **单项重置**：偏离主题默认值的项，行尾会出现 ↺，点一下只恢复这一项。
+- **保存为主题**：有个人修改时，面板底部会出现保存条。「另存为」把当前外观存成一个新主题，「保存」写回当前的用户主题，「丢弃」（点两次）回到主题原样。保存后修改就归主题所有，切走再切回来也还在。
 
 也可以用快捷键 `Ctrl/Cmd+Alt+Shift+O`、托盘菜单、应用菜单或 `zcode-canvas open` 打开面板。
 
@@ -122,14 +117,12 @@ npm install && npm run build && npm link
 
 <br>
 
-- 入口默认在窗口右侧、状态栏上方。可以拖到左右两侧的边缘，右键可以隐藏或重置位置。入口位置只是界面偏好，不影响主题配置。
+- 入口默认在窗口右侧、状态栏上方。可以拖到左右两侧的边缘，右键可以隐藏或重置位置。
 - 面板浮在界面上方，不会挤压编辑器。再次点击入口、按 Esc、点击面板外部或点关闭按钮都能收起，已应用的外观会保留。
-- 模糊和缩放滑杆在常用的低值区间更细：拖到轨道一半只对应四分之一的模糊范围，缩放 100% 在轨道约四分之一处。轨道上的细刻度标出主题默认值。方向键按 1px / 1% 步进，按住 Shift 时每次 ×10。
-- 拖动预览只改当前窗口，不写配置。保存失败时会恢复成上一次保存的效果。
-- "恢复主题默认"会删除个人的 `glass`、`accent` 和 `radius` 覆盖，保留壁纸相关的设置。
-- 有个人修改时，面板底部会出现保存条：「另存为」把当前外观存成新主题，「保存」写回当前的用户主题，「丢弃」（点两次）回到主题原样。保存后这些修改就归主题所有，切走再切回来也还在。
-- 快捷键只在 ZCode 主窗口里生效。在 ZCode 里录制快捷键时，Canvas 的快捷键会自动让开。
-- 批量导入等管理操作仍然用命令行完成。
+- "恢复主题默认"会删除个人的透明度与模糊（含分区）、材质、强调色、圆角和智能配色，保留壁纸相关的设置。
+- 个人修改在切换主题时会保留，所以切到另一个主题后，保存条仍可能显示"有未保存的修改"。它们会叠加在新主题上，想去掉就点"丢弃"。
+- 内置主题会随 Canvas 升级被覆盖，所以只能"另存为"，不能直接"保存"。
+- 在 ZCode 里录制快捷键时，Canvas 的快捷键会自动让开。
 
 </details>
 
@@ -172,7 +165,19 @@ npm install && npm run build && npm link
 | `glass` | 原生毛玻璃 | 保留官方配色，只透出系统原生毛玻璃 |
 | `mica` | Mica | 保留官方配色，改用 Windows 11 Mica 材质（其他平台等同 `glass`） |
 
-想自己做主题，最快的办法是在外观中心调好后点「另存为」；也可以用 `zcode-canvas new my-theme` 把当前外观（主题加个人设置）存成主题，再照 [docs/theme-format.md](docs/theme-format.md) 修改。[schema/theme.schema.json](schema/theme.schema.json) 能让编辑器补全和校验 `theme.json`，`use` 和 `themes` 命令也会按它检查第三方主题。主题格式目前是 format 1，以后只做向后兼容的新增。
+### 做一个自己的主题
+
+<img src="docs/images/panel-save.webp" alt="外观中心底部的保存条：主题名、有未保存的修改，以及保存、另存为、丢弃三个按钮" width="50%" align="right">
+
+1. 在外观中心选一张壁纸（或者不用壁纸）。
+2. 在"智能配色"里点一个种子色和一种风格，再按喜好调透明度、模糊和圆角。
+3. 点底部保存条上的"另存为…"，起个名字，回车。
+
+新主题就在 `~/.zcode-canvas/themes/<id>/` 里：一个 `theme.json` 加上它用到的图片，图片都已复制进来，不依赖目录外的文件。把整个文件夹发给别人，对方放进自己的 `~/.zcode-canvas/themes/`，外观中心里就会出现这个主题；用 `zcode-canvas use <id>` 启用时还会按 schema 完整校验一遍。
+
+想手写或精修 `theme.json`，照 [docs/theme-format.md](docs/theme-format.md) 改即可。[schema/theme.schema.json](schema/theme.schema.json) 能让编辑器补全和校验。主题格式目前是 format 1，以后只做向后兼容的新增。命令行里的 `zcode-canvas new <id>` 也能把当前外观存成主题，但不会切换过去。
+
+<br clear="right">
 
 ## 壁纸
 
@@ -186,9 +191,11 @@ npm install && npm run build && npm link
 </tr>
 </table>
 
+最简单的是在外观中心点"添加图片"，图片会复制进 Canvas 自己的壁纸库，之后在"我的壁纸"里点一下就能换。命令行也可以：
+
 ```sh
-zcode-canvas set wallpaper.image ~/pic.jpg   # 换壁纸
-zcode-canvas set glass.opacity 0.5           # 界面半透明，让壁纸透出来
+zcode-canvas set wallpaper.image ~/pic.jpg          # 换壁纸
+zcode-canvas set glass.opacity 0.5                  # 界面半透明，让壁纸透出来
 zcode-canvas set wallpaper.dark.image ~/night.jpg   # 暗色模式单独用一张
 ```
 
@@ -212,7 +219,7 @@ zcode-canvas set palette.seed "#5eead4"  # 智能配色：从一个颜色生成�
 zcode-canvas set palette.variant oled    # natural | vivid | soft | oled | contrast
 zcode-canvas set glass.regions.input.opacity 0.9   # 只让输入框更不透明，其余跟随 glass.opacity
 zcode-canvas unset wallpaper             # 删除一项或一组设置，回到主题默认值
-zcode-canvas new <id>                    # 把当前设置存成主题（会复制用到的图片）
+zcode-canvas new <id>                    # 把当前外观（主题加个人设置）存成新主题，会复制用到的图片
 zcode-canvas open                        # 打开外观中心；ZCode 没运行时打开配置目录
 zcode-canvas help                        # 所有命令和可设置的键
 ```
@@ -253,6 +260,15 @@ zcode-canvas restore --purge   # 同时删除 ~/.zcode-canvas（包括你的主�
 <br>
 
 界面完全不透明时会把壁纸盖住。把 `glass.opacity` 调低（比如 `0.5`），或者在外观中心里调低"界面透明"。另外，在 Windows 上壁纸会盖住系统原生的毛玻璃材质，两者只能看到一个。
+
+</details>
+
+<details>
+<summary><b>保存主题后想撤销</b></summary>
+
+<br>
+
+"保存"写回用户主题前，会把原来的文件留作同目录下的 `theme.json.bak`。把它改名回 `theme.json`，主题就回到这次保存前的版本，ZCode 会立即刷新。保存时清空的个人修改不会一起回来。"另存为"不会改动原主题，不想要新主题时删掉它的文件夹即可。
 
 </details>
 
@@ -309,9 +325,9 @@ Linux 的窗口透明依赖桌面合成器。合成器不支持时，毛玻璃�
 
 <br>
 
-- **Windows**：ZCode 装在受保护目录时，需要用管理员身份运行终端。ZCode 正在运行时 `app.asar` 会被占用，Canvas 会先准备好补丁，再启动一个后台小进程等 ZCode 退出后替换。
+- **Windows**：ZCode 装在 Program Files 这类受保护目录时，需要用管理员身份运行终端。ZCode 正在运行时 `app.asar` 会被占用，Canvas 会先准备好补丁，再启动一个一次性小进程，等 ZCode 退出后替换。所以直接在 ZCode 自带的终端里运行也没问题：从托盘**彻底退出** ZCode（关闭窗口只会缩到托盘），再打开就能看到效果。
 - **Linux**：ZCode 装在 `/opt/ZCode`，属于 root，所以 `apply` 需要 sudo。Canvas 会识别 `SUDO_USER`，把运行时和配置装到**你的**用户目录而不是 `/root`，文件所有权也会交还给你。如果 sudo 找不到命令，可以用 `sudo env "PATH=$PATH" zcode-canvas apply` 或 `sudo "$(which zcode-canvas)" apply`。文件可以随时替换，重启 ZCode 后生效。
-- **macOS**：ZCode.app 不可写时加 `sudo`。建议先启动过一次 ZCode 再 `apply`——macOS Tahoe 实测带着 quarantine 标记也能正常打开，Canvas 重签后也会顺手清掉它，但旧系统版本可能仍要求先放行一次。重签名的影响见[常见问题](#常见问题)。
+- **macOS**：ZCode.app 不可写时加 `sudo`。建议先启动过一次 ZCode 再 `apply`——macOS Tahoe 实测带着 quarantine 标记也能正常打开，Canvas 重签后也会顺手清掉它，但旧系统版本可能仍要求先放行一次。重签名不影响登录和钥匙串，见[常见问题](#常见问题)。
 - ZCode 装在非默认位置时，可以用 `--zcode <目录>` 指定。
 
 </details>

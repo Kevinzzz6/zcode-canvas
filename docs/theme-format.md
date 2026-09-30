@@ -140,7 +140,7 @@ my-theme/
 
 最终外观由两层叠成：先是主题，再是用户的 `~/.zcode-canvas/config.json`（`zcode-canvas set` 写的就是它）。
 
-- 用户配置**逐字段**覆盖主题，例如只设 `glass.blur` 不会影响主题的 `glass.opacity`。外观中心“恢复主题默认”会删除个人 `glass`、`accent`、`radius` 覆盖并保留壁纸选择。
+- 用户配置**逐字段**覆盖主题，例如只设 `glass.blur` 不会影响主题的 `glass.opacity`。外观中心“恢复主题默认”会删除个人 `glass`、`accent`、`radius`、`palette` 覆盖并保留壁纸选择。
 - 写 `null` 表示去掉主题设置的这一项，例如 `"wallpaper": null`、`"radius": null`、`"accent": null`。
 - `wallpaper` 和 `vars` 都遵循同一条"按模式细化"规则：顶层字段对两种模式生效，`dark` / `light` 里的字段只对该模式生效，并覆盖顶层；某个模式写 `null` 表示只在该模式下去掉。
 - 主题 `accent` 和主题 `colors` 同时出现时，`colors` 里显式写的 token 优先，`accent` 只补空缺。用户 `config.accent` 会覆盖主题提供的 `primary`、`brand`、`ring` 和 `primary-foreground`（包括主题 `colors` 中的显式值）；用户 `config.colors` 中显式写的 token 仍优先。
