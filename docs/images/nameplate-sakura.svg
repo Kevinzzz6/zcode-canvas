@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="80" viewBox="0 0 480 80" fill="none">
+  <title>04 · 樱</title>
+  <rect x=".5" y=".5" width="479" height="79" rx="6" fill="#241D25" stroke="#C49BB8" stroke-opacity=".3"/>
+  <path d="M16 20V60M16 40H22" stroke="#C49BB8" stroke-opacity=".5"/>
+  <text x="30" y="37" fill="#C49BB8" font-family="monospace" font-size="12">04</text>
+  <text x="65" y="36" fill="#EDD5E7" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="18" letter-spacing="1">樱</text>
+  <text x="66" y="57" fill="#B59CAE" font-family="Arial, sans-serif" font-size="9" letter-spacing="2.4">SAKURA</text>
+  <g transform="translate(344 27)"><rect width="18" height="26" rx="2" fill="#FBE8F5"/><rect x="23" width="18" height="26" rx="2" fill="#E6BFD9"/><rect x="46" width="18" height="26" rx="2" fill="#C49BB8"/><rect x="69" width="18" height="26" rx="2" fill="#A59BC8"/><rect x="92" width="18" height="26" rx="2" fill="#413244" stroke="#C49BB8" stroke-opacity=".2"/></g>
+</svg>

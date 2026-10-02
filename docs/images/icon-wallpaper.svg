@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>壁纸</title>
+  <defs><linearGradient id="ink" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#BA91AE"/><stop offset=".5" stop-color="#83BCAF"/><stop offset="1" stop-color="#B6AA79"/></linearGradient></defs>
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#ink)" fill-opacity=".06" stroke="url(#ink)" stroke-opacity=".22"/>
+  <g stroke="url(#ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="11" y="12" width="26" height="24" rx="3"/><circle cx="29.5" cy="19.5" r="2.5"/><path d="M11 30L19 22L27 30L31 26L37 32"/>
+  </g>
+</svg>

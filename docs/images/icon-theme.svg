@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>主题</title>
+  <defs><linearGradient id="ink" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#BA91AE"/><stop offset=".5" stop-color="#83BCAF"/><stop offset="1" stop-color="#B6AA79"/></linearGradient></defs>
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#ink)" fill-opacity=".06" stroke="url(#ink)" stroke-opacity=".22"/>
+  <g stroke="url(#ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 18L24 11L37 18L24 25Z"/><path d="M11 24L24 31L37 24M11 30L24 37L37 30"/>
+  </g>
+</svg>

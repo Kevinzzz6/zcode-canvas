@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="144" viewBox="0 0 960 144" fill="none">
+  <title>Make it yours — ZCode Canvas</title>
+  <defs>
+    <linearGradient id="foil" x1="342" y1="32" x2="618" y2="105" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BA91AE"/><stop offset=".35" stop-color="#A2BEBB"/><stop offset=".65" stop-color="#A098C1"/><stop offset="1" stop-color="#B6AA79"/>
+    </linearGradient>
+  </defs>
+  <path d="M40 72H310M650 72H920" stroke="#89949B" stroke-opacity=".2"/>
+  <rect x="338" y="39" width="284" height="66" rx="33" fill="url(#foil)" fill-opacity=".06" stroke="url(#foil)" stroke-opacity=".7"/>
+  <path d="M363 68L375 62L387 68L375 74ZM363 75L375 81L387 75" stroke="url(#foil)" stroke-width="1.2" stroke-linejoin="round"/>
+  <text x="491" y="69" text-anchor="middle" fill="url(#foil)" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="700" letter-spacing="2">MAKE IT YOURS</text>
+  <text x="491" y="88" text-anchor="middle" fill="#85929B" font-family="Arial, Helvetica, sans-serif" font-size="8" letter-spacing="3">ZCODE CANVAS</text>
+  <g transform="translate(430 123)">
+    <rect width="16" height="3" rx="1.5" fill="#C49BB8"/><rect x="21" width="16" height="3" rx="1.5" fill="#C0B477"/><rect x="42" width="16" height="3" rx="1.5" fill="#83BCAF"/><rect x="63" width="16" height="3" rx="1.5" fill="#B7AF91"/><rect x="84" width="16" height="3" rx="1.5" fill="#A59BC8"/>
+  </g>
+</svg>

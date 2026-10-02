@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>实时生效</title>
+  <defs><linearGradient id="ink" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#BA91AE"/><stop offset=".5" stop-color="#83BCAF"/><stop offset="1" stop-color="#B6AA79"/></linearGradient></defs>
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#ink)" fill-opacity=".06" stroke="url(#ink)" stroke-opacity=".22"/>
+  <g stroke="url(#ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 19A13 13 0 0 1 34 14L37 18M37 12V18H31M36 29A13 13 0 0 1 14 34L11 30M11 36V30H17"/><path d="M26 15L19 25H25L22 33L30 22H24Z" fill="url(#ink)" fill-opacity=".1"/>
+  </g>
+</svg>

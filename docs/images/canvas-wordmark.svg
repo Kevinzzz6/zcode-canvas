@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="220" viewBox="0 0 960 220" fill="none">
+  <title>ZCode Canvas</title>
+  <desc>Pearlescent Canvas lettering on an ink background, with layered glass and a theme color spectrum.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="960" y2="220" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#191D28"/><stop offset=".55" stop-color="#101319"/><stop offset="1" stop-color="#202026"/>
+    </linearGradient>
+    <linearGradient id="pearl" x1="214" y1="58" x2="744" y2="177" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E6BFD9"/><stop offset=".3" stop-color="#F4F0E8"/><stop offset=".58" stop-color="#BDE1D7"/><stop offset=".8" stop-color="#D0C5ED"/><stop offset="1" stop-color="#E8DDB7"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="32" y1="0" x2="928" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E6BFD9" stop-opacity="0"/><stop offset=".25" stop-color="#E6BFD9"/><stop offset=".55" stop-color="#BDE1D7"/><stop offset=".8" stop-color="#E8DDB7"/><stop offset="1" stop-color="#E8DDB7" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" stroke="#CFD7E6" stroke-opacity=".035"/></pattern>
+  </defs>
+  <rect width="960" height="220" rx="12" fill="url(#surface)"/>
+  <rect x="1" y="1" width="958" height="218" rx="11" fill="url(#grid)" stroke="#ADB8CE" stroke-opacity=".12"/>
+  <path d="M32 1H928" stroke="url(#edge)"/>
+  <g stroke-width="1.2" stroke-linejoin="round">
+    <path d="M54 100L88 82L122 100L88 118Z" fill="#D5C1E7" fill-opacity=".05" stroke="#D5C1E7" stroke-opacity=".35"/>
+    <path d="M54 87L88 69L122 87L88 105Z" fill="#BDE1D7" fill-opacity=".07" stroke="#BDE1D7" stroke-opacity=".65"/>
+    <path d="M54 74L88 56L122 74L88 92Z" fill="#F3E7DF" fill-opacity=".1" stroke="#F3E7DF"/>
+  </g>
+  <text x="480" y="48" text-anchor="middle" fill="#A3ABB9" font-family="Arial, Helvetica, sans-serif" font-size="12" letter-spacing="6">ZCODE</text>
+  <text x="485" y="141" text-anchor="middle" fill="url(#pearl)" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="100" letter-spacing="10">CANVAS</text>
+  <text x="480" y="182" text-anchor="middle" fill="#9DA6B7" font-family="Arial, Helvetica, sans-serif" font-size="10" letter-spacing="3.5">MAKE IT YOURS</text>
+  <g transform="translate(837 68)">
+    <rect width="8" height="36" rx="2" fill="#E6BFD9"/>
+    <rect x="13" width="8" height="36" rx="2" fill="#DCCE8D"/>
+    <rect x="26" width="8" height="36" rx="2" fill="#A7D4C8"/>
+    <rect x="39" width="8" height="36" rx="2" fill="#D8D2B4"/>
+    <rect x="52" width="8" height="36" rx="2" fill="#BEB5DC"/>
+  </g>
+  <g stroke="#737F95" stroke-opacity=".5"><path d="M46 174H58M52 168V180M902 174H914M908 168V180"/></g>
+</svg>

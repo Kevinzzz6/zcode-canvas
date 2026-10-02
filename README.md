@@ -1,6 +1,6 @@
 <div align="center">
 
-# ZCode Canvas
+<h1><img src="docs/images/canvas-wordmark.svg" alt="ZCode Canvas" width="800"></h1>
 
 **给官方版 ZCode 换一身皮肤。**
 
@@ -20,14 +20,14 @@
 
 <table>
 <tr>
-<td width="33%" valign="top"><b>主题</b><br>一个文件夹就是一套主题：<code>theme.json</code> 加上用到的图片。</td>
-<td width="33%" valign="top"><b>壁纸</b><br>常见图片格式都能用，GIF 会直接播放，模糊、缩放、色彩都能调。</td>
-<td width="33%" valign="top"><b>毛玻璃</b><br>侧栏、主区域、卡片、输入框分别调透明度和模糊，也能透出系统原生材质。</td>
+<td width="33%" valign="top"><img src="docs/images/icon-theme.svg" width="28" alt=""> <b>主题</b><br>一个文件夹就是一套主题：<code>theme.json</code> 加上用到的图片。</td>
+<td width="33%" valign="top"><img src="docs/images/icon-wallpaper.svg" width="28" alt=""> <b>壁纸</b><br>常见图片格式都能用，GIF 会直接播放，模糊、缩放、色彩都能调。</td>
+<td width="33%" valign="top"><img src="docs/images/icon-glass.svg" width="28" alt=""> <b>毛玻璃</b><br>侧栏、主区域、卡片、输入框分别调透明度和模糊，也能透出系统原生材质。</td>
 </tr>
 <tr>
-<td valign="top"><b>智能配色</b><br>从壁纸里取色，一键生成整套界面颜色，文字对比度自动把关。</td>
-<td valign="top"><b>启动画面</b><br>背景、logo 和动画都能换，从第一帧开始就是你的主题。</td>
-<td valign="top"><b>实时生效</b><br>改完约 1 秒刷新，不用重启 ZCode。</td>
+<td valign="top"><img src="docs/images/icon-palette.svg" width="28" alt=""> <b>智能配色</b><br>从壁纸里取色，一键生成整套界面颜色，文字对比度自动把关。</td>
+<td valign="top"><img src="docs/images/icon-splash.svg" width="28" alt=""> <b>启动画面</b><br>背景、logo 和动画都能换，从第一帧开始就是你的主题。</td>
+<td valign="top"><img src="docs/images/icon-live.svg" width="28" alt=""> <b>实时生效</b><br>改完约 1 秒刷新，不用重启 ZCode。</td>
 </tr>
 </table>
 
@@ -41,6 +41,10 @@
 - **出错也不影响 ZCode**：Canvas 任何部分出问题，最坏结果只是外观没生效，ZCode 照常启动。
 - **不留常驻进程**：不开调试端口，不联网。
 - **官方更新照常进行**：更新后只是回到官方原样，重新 `apply` 一次即可。
+
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+<sub>01 / START</sub>
 
 ## 快速开始
 
@@ -98,6 +102,10 @@ npm install && npm run build && npm link
 
 </details>
 
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+<sub>02 / STUDIO</sub>
+
 ## 外观中心
 
 每个 ZCode 主窗口右侧都有一个 **外观** 小按钮。点开就是面板，背后的界面就是实时预览。也可以用快捷键 `Ctrl/Cmd+Alt+Shift+O`、托盘菜单、应用菜单或 `zcode-canvas open` 打开。
@@ -148,6 +156,10 @@ npm install && npm run build && npm link
 
 </details>
 
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+<sub>03 / COLLECTION</sub>
+
 ## 主题
 
 <table>
@@ -156,7 +168,7 @@ npm install && npm run build && npm link
 <td width="50%"><img src="docs/images/theme-yorha-dark.webp" alt="尼尔 · 寄叶，暗色：炭黑底配沙色线条，同一套构图"></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><b>尼尔 · 寄叶</b> <code>yorha</code><br><sub>照 NieR:Automata 的系统设置界面做：中心亮、四周压暗的沙色纸面，细网格、构造线和点阵分隔带，全直角无阴影，右侧一枚几乎看不出的寄叶徽标。暗色是同一套构图的炭黑版。</sub></td>
+<td colspan="2" align="center"><img src="docs/images/nameplate-yorha.svg" alt="01 · 尼尔 · 寄叶主题与配色" width="480"><br><sub>照 NieR:Automata 的系统设置界面做：中心亮、四周压暗的沙色纸面，细网格、构造线和点阵分隔带，全直角无阴影，右侧一枚几乎看不出的寄叶徽标。暗色是同一套构图的炭黑版。</sub></td>
 </tr>
 </table>
 
@@ -170,15 +182,15 @@ npm install && npm run build && npm link
 <td width="50%"><img src="docs/images/theme-endfield-light.webp" alt="终末地 · 谷地黄，亮色"></td>
 </tr>
 <tr>
-<td colspan="2" align="center"><b>终末地 · 谷地黄</b> <code>endfield</code><br><sub>谷地黄强调色、等高线地形壁纸、全直角。暗色是墨黑底，亮色是奶油纸底。</sub></td>
+<td colspan="2" align="center"><img src="docs/images/nameplate-endfield.svg" alt="02 · 终末地 · 谷地黄主题与配色" width="480"><br><sub>谷地黄强调色、等高线地形壁纸、全直角。暗色是墨黑底，亮色是奶油纸底。</sub></td>
 </tr>
 <tr>
 <td><img src="docs/images/theme-endfield-wuling-dark.webp" alt="终末地 · 武陵青，暗色"></td>
 <td><img src="docs/images/theme-sakura-light.webp" alt="樱，亮色"></td>
 </tr>
 <tr>
-<td align="center" valign="top"><b>终末地 · 武陵青</b> <code>endfield-wuling</code><br><sub>同一套设计的青色版本，亮色和暗色都有。</sub></td>
-<td align="center" valign="top"><b>樱</b> <code>sakura</code><br><sub>柔和的樱粉渐变配粉色强调，适合亮色模式。</sub></td>
+<td align="center" valign="top"><img src="docs/images/nameplate-endfield-wuling.svg" alt="03 · 终末地 · 武陵青主题与配色" width="100%"><br><sub>同一套设计的青色版本，亮色和暗色都有。</sub></td>
+<td align="center" valign="top"><img src="docs/images/nameplate-sakura.svg" alt="04 · 樱主题与配色" width="100%"><br><sub>柔和的樱粉渐变配粉色强调，适合亮色模式。</sub></td>
 </tr>
 </table>
 
@@ -203,6 +215,10 @@ npm install && npm run build && npm link
 | `mica` | Mica | 保留官方配色，改用 Windows 11 Mica 材质（其他平台等同 `glass`） |
 
 </details>
+
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+<sub>04 / CREATE</sub>
 
 ## 做一个自己的主题
 
@@ -230,6 +246,10 @@ npm install && npm run build && npm link
 - “另存为”不会改动原主题，不想要新主题时删掉它的文件夹即可。
 
 </details>
+
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+<sub>05 / WALLPAPERS</sub>
 
 ## 壁纸
 
@@ -264,6 +284,10 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 ```
 
 导入的图片存在 `~/.zcode-canvas/imports/wallpaper/`，也会出现在外观中心的“我的壁纸”里。
+
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+<sub>06 / REFERENCE</sub>
 
 ## 命令行
 
@@ -403,3 +427,5 @@ npm run build
 ## 许可
 
 [MIT](LICENSE)
+
+<p align="center"><img src="docs/images/canvas-signature.svg" alt="Make it yours — ZCode Canvas" width="800"></p>

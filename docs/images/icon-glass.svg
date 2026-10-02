@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>毛玻璃</title>
+  <defs><linearGradient id="ink" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#BA91AE"/><stop offset=".5" stop-color="#83BCAF"/><stop offset="1" stop-color="#B6AA79"/></linearGradient></defs>
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#ink)" fill-opacity=".06" stroke="url(#ink)" stroke-opacity=".22"/>
+  <g stroke="url(#ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="11" y="11" width="20" height="20" rx="3" stroke-opacity=".45"/><rect x="17" y="17" width="20" height="20" rx="3" fill="url(#ink)" fill-opacity=".1"/><path d="M22 24L25 21M22 30L31 21"/>
+  </g>
+</svg>

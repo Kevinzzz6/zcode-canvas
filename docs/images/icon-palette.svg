@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>智能配色</title>
+  <defs><linearGradient id="ink" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#BA91AE"/><stop offset=".5" stop-color="#83BCAF"/><stop offset="1" stop-color="#B6AA79"/></linearGradient></defs>
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#ink)" fill-opacity=".06" stroke="url(#ink)" stroke-opacity=".22"/>
+  <path d="M36 25C39 17 32 10 24 11C16 11 10 17 11 25C12 33 18 38 24 37C28 36 24 32 27 29C29 27 34 29 36 25Z" stroke="url(#ink)" stroke-width="1.6" stroke-linejoin="round"/>
+  <circle cx="17" cy="22" r="2" fill="#BA91AE"/><circle cx="22" cy="17" r="2" fill="#B6AA79"/><circle cx="29" cy="18" r="2" fill="#83BCAF"/><circle cx="17.5" cy="29" r="2" fill="#A59BC8"/>
+</svg>
