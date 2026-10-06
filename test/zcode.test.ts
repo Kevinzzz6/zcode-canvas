@@ -10,6 +10,7 @@ import {
   exeName,
   macZCodeRunning,
   removePatch,
+  replaceDirectory,
   ResignError,
   runPendingSwap,
   sudoOwner,
@@ -111,6 +112,33 @@ test("deployRuntime ships the runtime, built-in themes and the pet into the Canv
   assert.equal(readFileSync(join(home, "runtime", "pets", "fox", "fox.png"), "utf8"), "png");
   assert.equal(JSON.parse(readFileSync(join(home, "runtime", "version.json"), "utf8")).version, "0.0.0-test");
   rmSync(root, { recursive: true, force: true });
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("replacing the runtime never leaves it missing when Windows refuses the rename", () => {
+  const home = mkdtempSync(join(tmpdir(), "zc-replace-"));
+  const from = join(home, "runtime.next");
+  const to = join(home, "runtime");
+  mkdirSync(join(from, "pets"), { recursive: true });
+  writeFileSync(join(from, "pets", "fox.png"), "new");
+  mkdirSync(to);
+  writeFileSync(join(to, "old.cjs"), "old");
+  let tries = 0;
+  const lingering = () => {
+    tries++;
+    throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+  };
+  replaceDirectory(from, to, lingering, 2);
+  assert.equal(tries, 2, "retried before falling back");
+  assert.equal(readFileSync(join(to, "pets", "fox.png"), "utf8"), "new");
+  assert.equal(existsSync(join(to, "old.cjs")), false);
+  assert.equal(existsSync(from), false);
+
+  mkdirSync(from);
+  writeFileSync(join(from, "main.cjs"), "renamed");
+  replaceDirectory(from, to);
+  assert.equal(readFileSync(join(to, "main.cjs"), "utf8"), "renamed");
+  assert.equal(existsSync(from), false);
   rmSync(home, { recursive: true, force: true });
 });
 

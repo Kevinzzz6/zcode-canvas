@@ -250,10 +250,30 @@ export function deployRuntime(packageRoot: string, home: string) {
   cpSync(join(packageRoot, "themes"), join(staging, "themes"), { recursive: true });
   cpSync(join(packageRoot, "pets"), join(staging, "pets"), { recursive: true });
   writeFileSync(join(staging, "version.json"), JSON.stringify({ version: packageVersion(packageRoot) }, null, 2));
-  rmSync(runtime, { recursive: true, force: true });
-  renameSync(staging, runtime);
+  replaceDirectory(staging, runtime);
   mkdirSync(join(home, "themes"), { recursive: true });
   restoreOwnership(home);
+}
+
+/**
+ * Moves `from` over `to`. On Windows a running ZCode holds the old runtime's files open (the pet's
+ * picture and sounds, wallpapers), so the deleted folder lingers for a moment and renaming onto
+ * its name fails with EPERM. Retries briefly, then copies instead: `to` must never be left missing.
+ */
+export function replaceDirectory(from: string, to: string, rename: (from: string, to: string) => void = renameSync, attempts = 10) {
+  rmSync(to, { recursive: true, force: true });
+  for (let attempt = 1; ; attempt++) {
+    try {
+      rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if ((code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") || attempt >= attempts) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+    }
+  }
+  cpSync(from, to, { recursive: true, force: true });
+  rmSync(from, { recursive: true, force: true });
 }
 
 export function packageVersion(packageRoot: string): string {
