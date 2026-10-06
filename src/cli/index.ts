@@ -6,6 +6,7 @@ import { themeSchemaProblems } from "./schema.ts";
 import { importWallpaper } from "./wallpaper.ts";
 import { buildCss } from "../shared/css.ts";
 import { isPaletteColor, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
+import { parsePetPatch, PET_SCALE, PET_SOUNDS } from "../shared/pet.ts";
 import {
   canvasHome,
   checkManifest,
@@ -58,6 +59,7 @@ function helpText(): string {
                          导入本地 Wallpaper Engine 静态图片（预览必须显式选择）
   css                    打印当前生成的 CSS
   open                   打开 Canvas 外观中心（ZCode 运行中）或配置目录
+  pet <on|off>           开关桌宠：窗口角落的狐娘，随 AI 思考、干活、等你回应、完成、出错变化
 
 通用参数:
   --zcode <目录>          ZCode 安装目录（默认自动查找；macOS 也可传 ZCode.app 所在目录）
@@ -95,6 +97,11 @@ function helpText(): string {
   startup.logo                启动 logo 图片路径
   startup.logoSize            启动 logo 尺寸 px
   startup.animation           ${STARTUP_ANIMATIONS.join(" | ")}
+  pet.enabled                 true | false（默认 false）
+  pet.scale                   桌宠大小 ${PET_SCALE.min}~${PET_SCALE.max}（默认 ${PET_SCALE.fallback}）
+  pet.volume                  音量 0~1，0 = 静音
+  pet.sound                   ${PET_SOUNDS.join(" | ")}（小黄鸭 / 音效 1）
+  pet.bubble                  true | false，是否说话（点击和需要你关注时的气泡）
 `;
 }
 
@@ -128,10 +135,20 @@ function writeConfig(config: CanvasConfig) {
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|palette\.(seed|variant|backdrop)|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|glass\.regions\.(frame\.opacity|(main|card|input)\.(opacity|blur))|startup\.(background|logo|logoSize|animation))$/;
-const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|palette|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|glass\.regions|glass\.regions\.(frame|main|card|input)|startup)$/;
+const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|palette\.(seed|variant|backdrop)|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|glass\.regions\.(frame\.opacity|(main|card|input)\.(opacity|blur))|startup\.(background|logo|logoSize|animation)|pet\.(enabled|scale|volume|sound|bubble))$/;
+const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|palette|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|glass\.regions|glass\.regions\.(frame|main|card|input)|startup|pet)$/;
 
 function parseValue(key: string, raw: string): unknown {
+  if (key.startsWith("pet.")) {
+    const value = raw === "true" || raw === "false" ? raw === "true" : /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+    // The same checks as the appearance panel: reject what the runtime would silently replace.
+    try {
+      parsePetPatch({ [key.slice(4)]: value });
+    } catch {
+      throw new Error(`${key} 的值 "${raw}" 无效，运行 \`zcode-canvas help\` 查看可用范围。`);
+    }
+    return value;
+  }
   // Colors and custom property values are CSS text; "0" must stay a string rather than become a number.
   if (/^(colors|vars|accent|palette)\./.test(key) || key === "accent") {
     if (/^palette\.(seed|backdrop)$/.test(key) && !isPaletteColor(raw)) throw new Error(`${key} 需要 #rrggbb 形式的颜色，如 #5eead4`);
@@ -315,6 +332,17 @@ function printCss() {
   console.error(`窗口材质: ${look.glass.material}`);
 }
 
+function pet(state: string | undefined) {
+  if (state !== "on" && state !== "off") throw new Error("用法: zcode-canvas pet <on|off>");
+  const config = readConfig(home);
+  config.pet = { ...(config.pet ?? {}), enabled: state === "on" };
+  writeConfig(config);
+  if (state === "off") return console.log("✓ 桌宠已关闭。");
+  console.log("✓ 桌宠已开启，ZCode 运行中会实时出现。");
+  if (config.enabled === false) console.log("! Canvas 当前已关闭（enabled=false），桌宠要等 Canvas 开启后才显示。");
+  if (!existsSync(join(paths.runtime(home), "pets"))) console.log("! 运行时还没有桌宠素材：先运行 `zcode-canvas apply`，然后重启 ZCode。");
+}
+
 async function main() {
   const { command, positional, flags } = parseArgs(process.argv.slice(2));
   const zcode = typeof flags.zcode === "string" ? flags.zcode : undefined;
@@ -342,6 +370,8 @@ async function main() {
       return printCss();
     case "open":
       return openCanvasHome();
+    case "pet":
+      return pet(positional[0]);
     case "__swap":
       return runPendingSwap(positional[0]!, positional[1]!);
     case undefined:

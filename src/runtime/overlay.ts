@@ -5,6 +5,7 @@ import { createRegionHighlight, diagnose, displayNumber, formatKnob, fromSlider,
 import { GLASS_REGIONS, type GlassRegion } from "../shared/glass.ts";
 import type { WallpaperFit } from "../shared/look.ts";
 import { extractColors, generatePalette, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
+import { PET_SCALE, resolvePet } from "../shared/pet.ts";
 
 export interface OverlayApi {
   get(): Promise<PanelData>;
@@ -93,6 +94,16 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
             <button id="center-position" class="text-button" title="将水平和垂直位置恢复到 50%">居中图片</button>
             <button id="reset-tuning" class="text-button">重置壁纸调节</button>
           </details>
+        </div>
+        <div class="pet-settings">
+          <div class="label">桌宠<span class="spacer"></span><small>AI 思考、干活、等你时会有反应</small><span class="mode-switch" role="group" aria-label="桌宠开关"><button id="pet-off" type="button">关</button><button id="pet-on" type="button">开</button></span></div>
+          <div id="pet-rows">
+            <label class="select-row">大小<span class="pet-range"><input type="range" id="pet-scale" min="${PET_SCALE.min}" max="${PET_SCALE.max}" step="${PET_SCALE.step}" aria-label="桌宠大小"><small id="pet-scale-value"></small></span></label>
+            <label class="select-row">音效<select id="pet-sound" aria-label="桌宠音效"><option value="duck">小黄鸭</option><option value="fx1">音效 1</option></select></label>
+            <label class="select-row">音量<span class="pet-range"><input type="range" id="pet-volume" min="0" max="1" step="0.05" aria-label="桌宠音量"><small id="pet-volume-value"></small></span></label>
+            <div class="select-row">说话<span class="mode-switch" role="group" aria-label="桌宠气泡"><button id="pet-quiet" type="button">关</button><button id="pet-talk" type="button">开</button></span></div>
+            <div class="hint">拖动可换位置，靠近窗口边缘会吸附。</div>
+          </div>
         </div>
       </div>
       ${studioMarkup}
@@ -635,7 +646,28 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     if (painted !== sampledUrl) { sampledUrl = painted; sampleWallpaper(painted); }
     else renderPalette();
     studio.render();
+    renderPet();
     position();
+  }
+  function renderPet() {
+    if (!data) return;
+    const pet = resolvePet(data.config.pet);
+    const off = data.config.enabled === false;
+    const press = (id: string, value: boolean) => $(id).setAttribute("aria-pressed", String(value));
+    press("pet-on", pet.enabled); press("pet-off", !pet.enabled);
+    press("pet-talk", pet.bubble); press("pet-quiet", !pet.bubble);
+    $("pet-rows").hidden = !pet.enabled;
+    showPetRange("pet-scale", pet.scale);
+    showPetRange("pet-volume", pet.volume);
+    $<HTMLSelectElement>("pet-sound").value = pet.sound;
+    for (const id of ["pet-on", "pet-off", "pet-talk", "pet-quiet", "pet-scale", "pet-volume", "pet-sound"]) ($(id) as HTMLButtonElement).disabled = busy || off;
+  }
+  function showPetRange(id: "pet-scale" | "pet-volume", value: number) {
+    const input = $<HTMLInputElement>(id);
+    input.value = String(value);
+    const min = Number(input.min), max = Number(input.max);
+    input.style.setProperty("--fill", `${(100 * (value - min)) / (max - min)}%`);
+    $(`${id}-value`).textContent = id === "pet-scale" ? `${value.toFixed(1)}×` : value > 0 ? `${Math.round(value * 100)}%` : "静音";
   }
   function showMenu(anchor: HTMLElement) {
     const wasOpen = !menu.hidden; menu.hidden = true;
@@ -699,6 +731,17 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   };
   listen($("mode-simple"), "click", () => setMode(false));
   listen($("mode-advanced"), "click", () => setMode(true));
+  const applyPet = (pet: Record<string, unknown>, message: string) => mutate(() => api.apply({ pet }), message);
+  listen($("pet-on"), "click", () => applyPet({ enabled: true }, "桌宠已出现 · 所有窗口同步"));
+  listen($("pet-off"), "click", () => applyPet({ enabled: false }, "桌宠已收起"));
+  listen($("pet-talk"), "click", () => applyPet({ bubble: true }, "桌宠会说话了"));
+  listen($("pet-quiet"), "click", () => applyPet({ bubble: false }, "桌宠不再说话 · 只做表情和动作"));
+  listen($("pet-sound"), "change", () => applyPet({ sound: $<HTMLSelectElement>("pet-sound").value }, "已更换桌宠音效"));
+  for (const id of ["pet-scale", "pet-volume"] as const) {
+    const input = $<HTMLInputElement>(id);
+    listen(input, "input", () => showPetRange(id, Number(input.value)));
+    listen(input, "change", () => applyPet(id === "pet-scale" ? { scale: Number(input.value) } : { volume: Number(input.value) }, id === "pet-scale" ? "已调整桌宠大小" : "已调整桌宠音量"));
+  }
   listen($("theme-details"), "toggle", position);
   listen($("region-details"), "toggle", position);
   listen($("wallpaper-details"), "toggle", position);

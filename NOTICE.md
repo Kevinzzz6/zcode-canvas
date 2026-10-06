@@ -1,5 +1,45 @@
 # Third-party notices
 
+## zcode-fox-widget
+
+The desktop pet's assets in `pets/fox/` come unmodified from
+[zcode-fox-widget](https://github.com/pigeon189/zcode-fox-widget) `assets/`:
+
+- `fox.png` is that project's `GLM.png` (the fox maid, added by pigeon189), renamed.
+- `rua.gif`, `Ya1.mp3`, `Ya2.mp3`, `D1.mp3` and `D2.mp3` are carried over by zcode-fox-widget from
+  its upstream [DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)
+  by MeteorNOX, via [zcode-whale-widget](https://github.com/nb10yyds/zcode-whale-widget) by nb10yyds.
+
+`src/runtime/pet.ts` re-implements that widget's speech bubble geometry, type sizes, press
+animation, quarter-snap dragging and press/release sound timing, and `src/runtime/pet-quotes.ts`
+carries a selection of its fox quote pack (`QUOTE_PACK_FOX`) with its weights. The balance, quota and billing
+features are not included.
+
+```
+MIT License
+
+Copyright (c) 2026 MeteorNOX
+Copyright (c) 2026 pigeon189 (ZCode Fox Widget / zcode-fox-widget)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## zcode-eye-care
 
 The `eye-care` theme palette (`themes/eye-care/theme.json`, light mode) is adapted from

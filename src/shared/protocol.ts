@@ -16,6 +16,9 @@ export const CHANNEL_PANEL_SAVE_THEME = "zcode-canvas:panel-save-theme";
 export const CHANNEL_PANEL_OPEN = "zcode-canvas:panel-open";
 export const CHANNEL_PANEL_CHANGED = "zcode-canvas:panel-changed";
 export const CHANNEL_PANEL_LOG = "zcode-canvas:panel-log";
+/** The desktop pet: GET answers the current payload (shared/pet.ts), PET pushes every change. */
+export const CHANNEL_PET_GET = "zcode-canvas:pet-get";
+export const CHANNEL_PET = "zcode-canvas:pet";
 
 /**
  * Not a Canvas channel: ZCode's own notification that its shortcut recorder armed/disarmed
@@ -23,6 +26,13 @@ export const CHANNEL_PANEL_LOG = "zcode-canvas:panel-log";
  * recording is in progress — otherwise the user could never bind this combination in ZCode.
  */
 export const ZCODE_SET_SHORTCUT_RECORDING = "zcode:set-shortcut-recording-active";
+
+/**
+ * Not a Canvas channel: ZCode's renderer asks its main process for a system notification here,
+ * among others when a question or approval card appears (packages/shared channels.ts
+ * `ShowTaskNotification`). The pet reads it as "waiting for the user" (shared/pet-state.ts).
+ */
+export const ZCODE_SHOW_TASK_NOTIFICATION = "zcode:show-task-notification";
 
 export const PROTOCOL_VERSION = 1;
 

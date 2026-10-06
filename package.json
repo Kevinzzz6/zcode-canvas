@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "themes",
+    "pets",
     "schema",
     "README.md",
     "LICENSE",

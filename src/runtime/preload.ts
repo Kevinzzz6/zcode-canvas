@@ -1,10 +1,12 @@
 // Session preload: runs in every page of ZCode's default session before any page script, so the
 // CSS is in place for the very first paint (including the startup screen).
 import { ipcRenderer, webFrame } from "electron";
-import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_LOG, CHANNEL_PANEL_SAVE_THEME, decodeState } from "../shared/protocol.ts";
+import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_GET, CHANNEL_PANEL_APPLY, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_SELECT_WALLPAPER, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_LOG, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PET, CHANNEL_PET_GET, decodeState } from "../shared/protocol.ts";
 import { regionHighlightCss, type GlassRegion } from "../shared/glass.ts";
+import { decodePet } from "../shared/pet.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { mountOverlay } from "./overlay.ts";
+import { mountPet, type PetView } from "./pet.ts";
 import { createPreviewController } from "./preview-controller.ts";
 
 const isMainWindow = window === window.top && isMainWindowUrl(location.href);
@@ -72,4 +74,26 @@ if (isMainWindow) {
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount, { once: true });
     else mount();
   } catch (error) { log(`overlay wiring: ${String(error)}`); }
+  // The pet only builds its DOM once it is turned on; a main process without the pet channels
+  // (older runtime still running) rejects the GET and the pet simply stays away.
+  try {
+    let pet: ReturnType<typeof mountPet> | undefined;
+    let latest: PetView | null = null;
+    const show = (payload: unknown) => {
+      const view = decodePet(payload);
+      if (!view) return;
+      latest = view;
+      pet?.update(view);
+    };
+    ipcRenderer.on(CHANNEL_PET, (_event, payload: unknown) => { try { show(payload); } catch (error) { log(`pet: ${String(error)}`); } });
+    void ipcRenderer.invoke(CHANNEL_PET_GET).then(show).catch((error) => log(`pet: ${String(error)}`));
+    const mountPetLater = () => {
+      try {
+        pet = mountPet({ log });
+        if (latest) pet.update(latest);
+      } catch (error) { log(`pet mount: ${String(error)}`); }
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountPetLater, { once: true });
+    else mountPetLater();
+  } catch (error) { log(`pet wiring: ${String(error)}`); }
 }

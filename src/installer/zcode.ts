@@ -248,6 +248,7 @@ export function deployRuntime(packageRoot: string, home: string) {
   mkdirSync(staging, { recursive: true });
   cpSync(join(packageRoot, "dist", "runtime"), staging, { recursive: true });
   cpSync(join(packageRoot, "themes"), join(staging, "themes"), { recursive: true });
+  cpSync(join(packageRoot, "pets"), join(staging, "pets"), { recursive: true });
   writeFileSync(join(staging, "version.json"), JSON.stringify({ version: packageVersion(packageRoot) }, null, 2));
   rmSync(runtime, { recursive: true, force: true });
   renameSync(staging, runtime);

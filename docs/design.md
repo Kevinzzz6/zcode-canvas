@@ -21,6 +21,7 @@
 |---|---|---|
 | asar 补丁与还原、CSS 白名单、主题格式、配置读写、保存为主题 | 稳定 | 还原与官方文件逐字节一致；theme.json format 1 只做向后兼容的新增；CSS 值只接受白名单语法；保存出的主题自包含，且与保存前外观一致 |
 | 菜单、托盘、快捷键、外观中心入口 | 尽力而为 | ZCode 改版后允许暂时失效，但不能影响 ZCode 本身 |
+| 桌宠的状态感知 | 尽力而为 | 读不懂日志时只会待机，不报错、不影响 ZCode；默认关闭 |
 
 改动稳定部分时，必须保持上表里的承诺，并补测试锁定。尽力而为部分的改动，只要求不越过安全底线。
 
@@ -40,8 +41,11 @@
 | 主渲染页允许 preload 向文档根节点追加自有 Shadow DOM；入口默认位于右侧、底部上方约 220px 的几何假设 | 主渲染页与窗口布局（不查询状态栏、编辑器或通知容器） | `src/runtime/overlay.ts` | 浮层可能无法显示，或入口与宿主内容重叠；可拖动、隐藏、重置，快捷键/托盘仍可唤起 |
 | 应用菜单整体重建时调用 `Menu.setApplicationMenu` | `desktopApplicationMenu.ts` 的 `rebuildApplicationMenu` | `src/runtime/main.ts` 的 `wrapApplicationMenu` | 菜单入口消失 |
 | 托盘菜单整体重建时调用 `Tray.setContextMenu` | `desktopTray.ts` 的 `rebuildContextMenu` | `src/runtime/main.ts` 的 `wrapTrayMenu` | Windows 托盘入口消失 |
-| 快捷键录制状态的 IPC 通道 `zcode:set-shortcut-recording-active` | `packages/shared/src/channels.ts` 的 `SetShortcutRecordingActive` | `src/shared/protocol.ts`、`src/runtime/main.ts` 的 `observeShortcutRecording` | 录制快捷键期间 Canvas 快捷键不再让位 |
+| 快捷键录制状态的 IPC 通道 `zcode:set-shortcut-recording-active` | `packages/shared/src/channels.ts` 的 `SetShortcutRecordingActive` | `src/shared/protocol.ts`、`src/runtime/main.ts` 的 `observeZCodeIpc` | 录制快捷键期间 Canvas 快捷键不再让位 |
+| 卡片通知的 IPC 通道 `zcode:show-task-notification`：渲染层弹出提问或审批卡片时发送（ZCode 设置里的“通知”关闭时不发；只发当前打开的会话；切换到会话时已存在的卡片不发），载荷 `{ taskId: 会话 id, status: "permission_request" \| "elicitation_request", requestId: 卡片 id }` | `packages/shared/src/channels.ts` 的 `ShowTaskNotification`、`validation.ts` 的 `taskNotificationPayloadSchema`、`ui/src/hooks/useTaskNotifications.ts` | `src/runtime/main.ts` 的 `observeZCodeIpc`、`src/shared/pet-state.ts` 的 `parsePromptNotification` | 桌宠不再显示“等你回应” |
 | Electron fuse：asar 完整性校验关闭，RunAsNode 开启 | `ZCode.exe` 的打包配置 | 整个补丁方案 | 完整性校验一旦开启，补丁方案整体失效（见第 5 节） |
+| 事件日志的位置和文件名：`ZCODE_LOG_DIR`，否则 `~/.zcode/cli/log/zcode-<本地日期>.jsonl`，每行一个 JSON，只追加 | `apps/zcode-cli/packages/adapters/src/logging/index.ts`、`retention.ts` 的 `formatLocalLogDate` | `src/runtime/pet-log.ts` | 桌宠一直待机 |
+| 日志事件及字段：`turn.started` / `turn.completed` / `turn.failed`（手动停止时 `status` 为 `cancelled`），`model.request.started`，`tool.call.started` / `completed` / `failed` 的 `toolCallId`，`tool.permission.resolved` 的 `context.requestId`（与卡片 id 相同，回答、批准、拒绝都会写），`context.querySource`（`main_turn` / `subagent`），子代理会话 id `sess_subagent_<agentId>` 及父会话的 `subagent.*` 事件 | ZCode core runtime、`core/tool/executor/call-runner.ts`、`permission-flow.ts`、subagent 模块的日志调用 | `src/shared/pet-state.ts` 的 `parseLogLine` | 对应的状态不再出现，或桌宠停在某个状态直到超时兜底（回合 10 分钟，卡片 4 小时） |
 
 新增任何对 ZCode 内部实现的依赖，都要先在这张表里加一行。
 
@@ -65,6 +69,18 @@
 - 有个人外观覆盖时，页脚上方出现保存条：「另存为」新建用户主题，「保存」写回当前用户主题（内置主题和「原生」只能另存为，`apply` 会覆盖内置主题），「丢弃」要点两次，删除全部个人外观覆盖（含壁纸选择）。保存后切到该主题并清空个人覆盖，修改从此归主题所有。渲染层只传主题名称，主进程生成 id、只写 Canvas 自有的 `themes/` 目录。保存逻辑在 `src/shared/save-theme.ts`，与 `zcode-canvas new` 共用；它与 `resolveLook` 共用同一套逐层合并（`mergeLayers`），保存前后生成的 CSS 语义相同，由测试对所有内置主题锁定。
 - 分区玻璃没单独设置的区域跟随整体「界面透明」「界面模糊」，拖动整体滑杆时这些区域的滑杆同步移动。区域的透明看不出效果时就近说明原因：侧栏（即窗口外框）不透明时其他区域只能透出侧栏颜色；主区域不会比它下面的侧栏更通透。
 - 使用分区玻璃的控件时（按住或键盘聚焦滑杆、指针停在该行上），给这个区域在 ZCode 里对应的界面描一圈强调色内描边：侧栏描窗口外框，其余区域描挂毛玻璃的那些背景类。松手约 1 秒后、移开或失焦、关闭面板时撤掉；整体控件不高亮。只靠 CSS：描边规则是常量，由 preload 用自己的一份 `insertCSS` 插入和移除，与预览和已提交的样式互不干扰；不查询宿主 DOM，不新增 IPC，不写配置、不广播。
+
+### 桌宠的边界
+
+- 默认关闭，只有 `config.pet.enabled` 为 true 且 Canvas 总开关打开时才出现。它不是外观的一部分：不写进主题，“丢弃”外观覆盖时保留，`unsaved` 也不计它。
+- 和外观浮层一样只挂在主渲染页，DOM 封装在自有的 closed Shadow DOM 里，不查询、不观察宿主 DOM。唯一的全局监听是窗口上的被动 `pointermove`，用来判断指针是否在图片不透明的像素上，从而让透明部分的点击穿透给 ZCode。按下时阻止默认行为，不会抢走输入框焦点。
+- 状态来自两处，都是只读的（第 3 节）。一是 ZCode 的事件日志：主进程里的定时器每 500ms 读一次追加的内容，桌宠关闭时停止；启动时从当天日志的末尾开始，不回放历史；一次积压超过 1MB 时跳过旧的部分。二是 ZCode 渲染层发给主进程的卡片通知：只在被观察的两个通道上包一层监听，原样转交给 ZCode 自己的处理函数，其他通道保持 ZCode 注册的原函数，`removeListener` 不受影响。日志里没有“等待用户”的记录，所以“等你回应”只来自卡片通知，不做推断。
+- 不开端口、不起进程、不写 ZCode 的任何文件、不读对话内容（只用事件名、会话 id、工具调用 id 和卡片 id）。
+- 各会话分别跟踪，按紧急程度合并成一个状态：等你回应 > 出错 > 干活 > 思考 > 完成 > 待机。“完成”和“出错”只看主会话这一轮的结束；手动停止（`turn.failed` 且 `status` 为 `cancelled`）不算出错；子代理运行时只算干活。回合 10 分钟没有任何事件就当作已经结束。思考、干活、待机之间的切换至少保持 1.5 秒，避免闪烁。
+- “等你回应”：卡片弹出即进入，按卡片 id 去重，多张卡片全部处理完才退出。同一 id 的 `tool.permission.resolved` 出现即退出（回答、批准、拒绝、自动作答都会写）；这一轮结束时清掉该会话的卡片；id 不是 `perm_` 开头的卡片没有对应日志，在该会话的下一条事件时退出；4 小时兜底。ZCode 不发通知的情况就不提醒：卡片在没打开的会话里、切到会话时卡片已经存在、设置里关闭了“通知”、卡片已在时刷新或重启。
+- 读不懂的行直接忽略；跟随出错时每种错误只写一次 `runtime.log`。旧版主进程没有桌宠通道时，新版 preload 的请求被拒绝，桌宠不出现，其他功能照常。
+- 位置是本地 UI 偏好（`localStorage` 的 `zcode-canvas:pet:v1`），不写进配置。
+- 素材随包发布在 `pets/`，`apply` 时部署到运行时目录，以 `file:` URL 加载，不联网。
 
 ## 4. 修复门槛
 

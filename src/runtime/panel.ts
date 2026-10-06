@@ -10,6 +10,7 @@ import { buildCss, isSafeCssValue } from "../shared/css.ts";
 import { GLASS_REGIONS, type GlassRegion, type GlassRegionSpec } from "../shared/glass.ts";
 import { listThemes, LOOK_KEYS, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type GlassSpec, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
 import { isPaletteColor, PALETTE_VARIANTS, type PaletteSpec, type PaletteVariant } from "../shared/palette.ts";
+import { parsePetPatch } from "../shared/pet.ts";
 import { positionAxes } from "../shared/position.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
 import { saveLookAsTheme } from "../shared/save-theme.ts";
@@ -179,6 +180,8 @@ export interface PanelInput {
   discard?: unknown;
   /** Control names whose personal override is removed, so the theme's value applies again. */
   unset?: unknown;
+  /** Desktop pet settings (shared/pet.ts parsePetPatch); merged into config.pet field by field. */
+  pet?: unknown;
 }
 
 /** Numeric wallpaper knobs and the ranges the panel may set them to. */
@@ -206,7 +209,7 @@ type RegionInput = keyof typeof REGION_INPUTS;
 const REGION_INPUT_KEYS = Object.keys(REGION_INPUTS) as RegionInput[];
 const PANEL_INPUT_KEYS = new Set([
   "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS,
-  "glassOpacity", "glassBlur", "material", "accent", "radius", "palette", "positionX", "positionY", "reset", "clearOverlay", "discard", "unset",
+  "glassOpacity", "glassBlur", "material", "accent", "radius", "palette", "positionX", "positionY", "reset", "clearOverlay", "discard", "unset", "pet",
 ]);
 const UNSET_KEYS = new Set(["glassOpacity", "glassBlur", "radius", "positionX", "positionY", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS]);
 
@@ -403,6 +406,7 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
     else throw new Error("invalid accent");
   }
   if (input.radius !== undefined) next.radius = panelNumber(input.radius, 0, 4, "radius");
+  if (input.pet !== undefined) next.pet = { ...(next.pet ?? {}), ...parsePetPatch(input.pet) };
   return next;
 }
 

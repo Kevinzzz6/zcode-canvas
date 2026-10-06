@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { GLASS_REGIONS, regionAlphas, type GlassRegion, type GlassRegionSpec, type ResolvedRegion } from "./glass.ts";
 import { filteredBackdrop, generatePalette, isPaletteColor, PALETTE_VARIANTS, type PaletteBackdrop, type PaletteReadability, type PaletteSpec, type PaletteVariant } from "./palette.ts";
+import type { PetSpec } from "./pet.ts";
 
 export type Mode = "dark" | "light";
 export type Material = "acrylic" | "mica" | "tabbed" | "none";
@@ -128,6 +129,8 @@ export interface CanvasConfig extends LookSpec {
   enabled?: boolean;
   /** Active theme id (folder name), or null for none. */
   theme?: string | null;
+  /** The desktop pet (shared/pet.ts). Not part of the look: never saved into a theme. */
+  pet?: PetSpec;
 }
 
 export interface ResolvedWallpaper {

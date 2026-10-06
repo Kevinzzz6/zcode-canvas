@@ -101,6 +101,21 @@ test("swatches reject unsafe CSS and effective values inherit theme tuning", () 
   assert.equal(data.config.wallpaper?.blur, undefined);
 });
 
+test("pet settings merge field by field, are validated, and are not part of the look", () => {
+  const home = makeHome();
+  const before: CanvasConfig = { theme: "mine", accent: "#7c5cff", pet: { enabled: true, scale: 2 } };
+  const after = applyPanelInput(before, { pet: { volume: 0, sound: "fx1" } }, home);
+  assert.deepEqual(after.pet, { enabled: true, scale: 2, volume: 0, sound: "fx1" });
+  assert.equal(after.accent, "#7c5cff");
+  assert.throws(() => applyPanelInput(before, { pet: { image: "C:/evil.png" } }, home), /invalid pet image/);
+  assert.throws(() => applyPanelInput(before, { pet: { scale: 10 } }, home), /invalid pet scale/);
+  assert.deepEqual(applyPanelInput(before, { discard: true }, home), { theme: "mine", pet: { enabled: true, scale: 2 } }, "discarding the look keeps the pet");
+  writeConfigAtomic(home, before);
+  assert.equal(readPanelData(home).unsaved, true, "the accent is unsaved, the pet alone would not be");
+  writeConfigAtomic(home, { theme: "mine", pet: { enabled: true } });
+  assert.equal(readPanelData(home).unsaved, false);
+});
+
 test("picking a theme only changes config.theme and never clears the wallpaper override", () => {
   const home = makeHome();
   const before: CanvasConfig = { theme: "mine", wallpaper: { image: "/w/pic.jpg", dim: 0.4 }, accent: "#7c5cff" };

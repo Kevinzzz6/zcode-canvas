@@ -95,17 +95,20 @@ test("sudoOwner resolves the invoking user, never root, and never without eviden
   assert.equal(sudoOwner({ SUDO_USER: "alice", SUDO_UID: "0", SUDO_GID: "0" }, { uid: 0, gid: 0 }), null);
 });
 
-test("deployRuntime ships the runtime and built-in themes into the Canvas home", () => {
+test("deployRuntime ships the runtime, built-in themes and the pet into the Canvas home", () => {
   const root = mkdtempSync(join(tmpdir(), "zc-pkg-"));
   const home = mkdtempSync(join(tmpdir(), "zc-home-"));
   mkdirSync(join(root, "dist", "runtime"), { recursive: true });
   writeFileSync(join(root, "dist", "runtime", "main.cjs"), "runtime");
   mkdirSync(join(root, "themes", "t"), { recursive: true });
   writeFileSync(join(root, "themes", "t", "theme.json"), JSON.stringify({ name: "T" }));
+  mkdirSync(join(root, "pets", "fox"), { recursive: true });
+  writeFileSync(join(root, "pets", "fox", "fox.png"), "png");
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "0.0.0-test" }));
   deployRuntime(root, home);
   assert.equal(readFileSync(join(home, "runtime", "main.cjs"), "utf8"), "runtime");
   assert.ok(existsSync(join(home, "runtime", "themes", "t", "theme.json")));
+  assert.equal(readFileSync(join(home, "runtime", "pets", "fox", "fox.png"), "utf8"), "png");
   assert.equal(JSON.parse(readFileSync(join(home, "runtime", "version.json"), "utf8")).version, "0.0.0-test");
   rmSync(root, { recursive: true, force: true });
   rmSync(home, { recursive: true, force: true });

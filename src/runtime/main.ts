@@ -1,13 +1,17 @@
 // Runs inside ZCode's Electron main process, loaded by the bootstrap before ZCode's own entry.
 // Anything thrown here must never reach ZCode: every entry point is guarded.
-import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, shell, Tray, type IpcMainEvent, type OpenDialogOptions, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, shell, Tray, type IpcMainEvent, type IpcMainInvokeEvent, type OpenDialogOptions, type WebContents } from "electron";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { buildCss } from "../shared/css.ts";
-import { canvasHome, loadLook, paths, type Material } from "../shared/look.ts";
-import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, encodeState, ZCODE_SET_SHORTCUT_RECORDING } from "../shared/protocol.ts";
+import { canvasHome, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
+import { resolvePet, type PetAssets, type ResolvedPet } from "../shared/pet.ts";
+import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, CHANNEL_PET, CHANNEL_PET_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION } from "../shared/protocol.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
+import { zcodeLogDir } from "./pet-log.ts";
+import { createPetService } from "./pet-service.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome, debounced } from "./watch.ts";
 
@@ -31,15 +35,18 @@ function log(message: string) {
 interface State {
   css: string;
   material: Material;
+  pet: ResolvedPet;
 }
 
 function compute(previous: State): State {
   try {
+    const config = readConfig(home);
+    const pet = resolvePet(config.pet, config.enabled !== false);
     const { look, warnings } = loadLook(home);
-    if (!look) return { css: "", material: OFFICIAL_MATERIAL };
+    if (!look) return { css: "", material: OFFICIAL_MATERIAL, pet };
     const result = buildCss(look);
     for (const warning of [...warnings, ...result.warnings]) log(`warn: ${warning}`);
-    return { css: result.css, material: look.glass.material };
+    return { css: result.css, material: look.glass.material, pet };
   } catch (error) {
     // A half-written config.json during editing is normal; keep showing the last good look.
     log(`config error, keeping previous look: ${String(error)}`);
@@ -47,28 +54,62 @@ function compute(previous: State): State {
   }
 }
 
-let state = compute({ css: "", material: OFFICIAL_MATERIAL });
+let state = compute({ css: "", material: OFFICIAL_MATERIAL, pet: resolvePet(undefined) });
 const renderers = new Set<WebContents>();
+
+/** The pet's bundled assets, deployed next to this file by `zcode-canvas apply`. */
+const petAssets: PetAssets = (() => {
+  const url = (name: string) => pathToFileURL(join(__dirname, "pets", "fox", name)).href;
+  return { image: url("fox.png"), rua: url("rua.gif"), sounds: { duck: { press: url("Ya1.mp3"), release: url("Ya2.mp3") }, fx1: { press: url("D1.mp3"), release: url("D2.mp3") } } };
+})();
+
+const pet = createPetService({
+  assets: petAssets,
+  logDir: zcodeLogDir(),
+  log,
+  send(payload) {
+    for (const contents of renderers) {
+      if (contents.isDestroyed()) continue;
+      try {
+        contents.send(CHANNEL_PET, payload);
+      } catch (error) {
+        log(`pet update failed: ${String(error)}`);
+      }
+    }
+  },
+});
 
 /** Set while ZCode's shortcut recorder is armed; the panel shortcut stands down so the user can
  *  bind the combination to a ZCode command (and no panel pops up mid-recording). */
 let shortcutRecordingActive = false;
 
+/** What Canvas reads from ZCode's own IPC on its way to ZCode's listeners, which see it unchanged. */
+function observe(channel: string, args: unknown[]) {
+  try {
+    if (channel === ZCODE_SET_SHORTCUT_RECORDING && typeof args[0] === "boolean") shortcutRecordingActive = args[0];
+    else if (channel === ZCODE_SHOW_TASK_NOTIFICATION) pet.prompt(args[0]);
+  } catch (error) {
+    log(`observing ${channel} failed: ${String(error)}`);
+  }
+}
+
 /**
- * ZCode notifies the main process of the recorder state over ipcMain.on (desktopMainIpcPlatform).
- * The runtime loads before ZCode's entry, so wrapping the registration lets it observe that state
- * — and since toggling the recorder makes ZCode rebuild the application menu, the menu wrapper
- * below naturally re-adds the Canvas item with/without its accelerator at exactly that moment.
+ * The runtime loads before ZCode's entry, so wrapping the registrations lets it see ZCode's own
+ * messages. Only the observed channels get a wrapped listener: everywhere else ZCode keeps its own
+ * function, so removeListener keeps working. Toggling the shortcut recorder also makes ZCode
+ * rebuild the application menu, where wrapApplicationMenu re-adds the Canvas item with or without
+ * its accelerator at exactly that moment.
  */
-function observeShortcutRecording() {
+function observeZCodeIpc() {
+  const observed = new Set([ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION]);
   type Listener = (event: IpcMainEvent, ...args: unknown[]) => void;
-  const on = ipcMain.on.bind(ipcMain) as (channel: string, listener: Listener) => ReturnType<typeof ipcMain.on>;
-  const wrapped: typeof ipcMain.on = (channel, listener) =>
-    on(channel, (event, ...args) => {
-      if (channel === ZCODE_SET_SHORTCUT_RECORDING && typeof args[0] === "boolean") shortcutRecordingActive = args[0];
-      return listener(event, ...args);
-    });
-  ipcMain.on = wrapped;
+  type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
+  const on = ipcMain.on.bind(ipcMain) as (channel: string, listener: Listener) => typeof ipcMain;
+  const handle = ipcMain.handle.bind(ipcMain) as (channel: string, handler: Handler) => void;
+  ipcMain.on = ((channel: string, listener: Listener) =>
+    on(channel, observed.has(channel) ? (event, ...args) => { observe(channel, args); return listener(event, ...args); } : listener)) as typeof ipcMain.on;
+  ipcMain.handle = ((channel: string, handler: Handler) =>
+    handle(channel, observed.has(channel) ? (event, ...args) => { observe(channel, args); return handler(event, ...args); } : handler)) as typeof ipcMain.handle;
 }
 
 /** Prefer the focused main window; the tray reopens the last active one even with its tab hidden. */
@@ -241,13 +282,14 @@ function reload() {
       log(`update failed: ${String(error)}`);
     }
   }
-  log(`reloaded (css ${state.css.length} bytes, material ${state.material})`);
+  pet.configure(state.pet);
+  log(`reloaded (css ${state.css.length} bytes, material ${state.material}, pet ${state.pet.enabled ? "on" : "off"})`);
 }
 
 try {
   wrapApplicationMenu();
   wrapTrayMenu();
-  observeShortcutRecording();
+  observeZCodeIpc();
   installInWindowShortcut();
 
   // Only the preload of ZCode's main window asks, so this also identifies the windows to style —
@@ -281,6 +323,13 @@ try {
       } catch { /* Logging never affects the host. */ }
     });
   } catch (error) { log(`overlay logging unavailable: ${String(error)}`); }
+  try {
+    ipcMain.handle(CHANNEL_PET_GET, (event) => {
+      if (!senderIsMainWindow(event as unknown as IpcMainEvent)) throw new Error("refused: sender is not ZCode's main window");
+      return pet.payload();
+    });
+    pet.configure(state.pet);
+  } catch (error) { log(`pet unavailable: ${String(error)}`); }
 
   app.once("ready", () => {
     try {
