@@ -61,11 +61,14 @@ try {
   }
   const [first, second, auxiliary] = windows;
   const evaluate = (win, code) => win.webContents.executeJavaScript(code);
+  // Writes reach the windows through the runtime's debounced reload (150 ms).
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
   assert.equal(await evaluate(first, "!!document.querySelector('zcode-canvas-overlay')"), true);
   assert.equal(await evaluate(second, "!!document.querySelector('zcode-canvas-overlay')"), true);
   assert.equal(await evaluate(auxiliary, "!!document.querySelector('zcode-canvas-overlay')"), false);
   await assert.rejects(evaluate(auxiliary, "testCanvas.apply({dim:0.9})"), /refused/);
   await evaluate(first, "testCanvas.apply({dim:0.53})");
+  await settle();
   for (const win of [first, second]) {
     assert.equal(await evaluate(win, "testCanvas.get().then(d=>d.config.wallpaper.dim)"), .53);
     assert.match(await evaluate(win, 'getComputedStyle(document.body,"::after").backgroundColor'), /0\.53/);
@@ -97,6 +100,7 @@ try {
     blur: getComputedStyle(document.getElementById('surface')).backdropFilter
   })`), secondBeforePreview);
   await evaluate(first, `testCanvas.apply(${JSON.stringify(previewInput)})`);
+  await settle();
   assert.equal((await evaluate(first, "testCanvas.preview({})")).css, preview.css);
   assert.equal(await evaluate(second, "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()"), "#d0387c");
   assert.equal(await evaluate(second, "getComputedStyle(document.getElementById('surface')).backdropFilter"), "none", "opacity 1 and blur 0 must clear the old blur");
@@ -104,6 +108,7 @@ try {
   await evaluate(first, "testCanvas.apply({ positionX: 22, positionY: 74, radius: 2 })");
   assert.equal(JSON.parse(readFileSync(join(home, "config.json"), "utf8")).wallpaper.position, "22% 74%");
   await evaluate(first, "testCanvas.apply({ theme: 'theme-b' })");
+  await settle();
   let saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   assert.equal(saved.theme, "theme-b");
   assert.equal(saved.accent, "#d0387c");
@@ -112,6 +117,7 @@ try {
   assert.equal(await evaluate(second, "getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim()"), "#d0387c");
 
   await evaluate(first, "testCanvas.apply({ reset: 'theme' })");
+  await settle();
   saved = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   assert.equal(saved.accent, undefined);
   assert.equal(saved.glass, undefined);
