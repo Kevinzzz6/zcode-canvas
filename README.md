@@ -12,6 +12,8 @@
 [![platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-111?style=flat-square)](#平台支持)
 [![license](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
 
+[快速开始](#快速开始) · [主题](#主题) · [外观中心](#外观中心) · [文档](docs/theme-format.md)
+
 <img src="docs/images/hero.webp" alt="同一个 ZCode 窗口的三种样子：樱、终末地 · 谷地黄、尼尔 · 寄叶" width="100%">
 
 </div>
@@ -44,7 +46,7 @@
 
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-<sub>01 / START</sub>
+01 / START
 
 ## 快速开始
 
@@ -104,7 +106,7 @@ npm install && npm run build && npm link
 
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-<sub>02 / STUDIO</sub>
+02 / STUDIO
 
 ## 外观中心
 
@@ -158,7 +160,7 @@ npm install && npm run build && npm link
 
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-<sub>03 / COLLECTION</sub>
+03 / COLLECTION
 
 ## 主题
 
@@ -218,7 +220,7 @@ npm install && npm run build && npm link
 
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-<sub>04 / CREATE</sub>
+04 / CREATE
 
 ## 做一个自己的主题
 
@@ -249,7 +251,7 @@ npm install && npm run build && npm link
 
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-<sub>05 / WALLPAPERS</sub>
+05 / WALLPAPERS
 
 ## 壁纸
 
@@ -285,9 +287,29 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 
 导入的图片存在 `~/.zcode-canvas/imports/wallpaper/`，也会出现在外观中心的“我的壁纸”里。
 
+## 桌宠
+
+一只住在 ZCode 窗口角落的狐娘，看一眼就知道 AI 在干什么：
+
+| AI 在…… | 她会…… |
+|---|---|
+| 思考 | 歪头，头顶冒出 `···` |
+| 跑命令、改文件 | 小幅颠动 |
+| 等你回答问题或批准操作 | 跳起来，冒出 `!`，说一句“主人，该你了！” |
+| 完成这一轮 | 蹦一下，冒出星星，说“搞定啦！” |
+| 这一轮失败了 | 抖一下然后蔫掉 |
+
+自己手动停掉的回合不算出错；子代理跑完也不会喊“完成”，只有主会话这一轮结束时才会。同时开着几个会话时，她显示最需要你关注的那一个。
+
+桌宠默认关闭，在外观中心的“桌宠”里打开，或者运行 `zcode-canvas pet on`。点她会 Q 弹一下、发出声音、说一句随机台词；拖到窗口边缘附近会吸附，靠左时自动转身。图片透明的地方不挡鼠标。大小、音效、音量和“说话”开关都在外观中心里。
+
+状态来自 ZCode 自己写的事件日志 `~/.zcode/cli/log/zcode-<日期>.jsonl`，以及 ZCode 弹出提问或审批卡片时发出的通知：Canvas 在 ZCode 主进程里只读旁听，不开端口，不起额外进程。“等你回应”只对当前打开的会话生效，并且需要开着 ZCode 设置里的“通知”。这些都不是官方接口，ZCode 改版后她可能暂时只会待机，但不会影响 ZCode 本身。
+
+形象、气泡、台词和音效来自 [zcode-fox-widget](https://github.com/pigeon189/zcode-fox-widget)（MIT），详见 [NOTICE.md](NOTICE.md)。
+
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-<sub>06 / REFERENCE</sub>
+06 / REFERENCE
 
 ## 命令行
 
@@ -303,6 +325,8 @@ zcode-canvas set glass.regions.input.opacity 0.9  # 只让输入框更不透明�
 zcode-canvas unset wallpaper                      # 删除一项或一组设置，回到主题默认值
 zcode-canvas new <id>                             # 把当前外观存成新主题
 zcode-canvas open                                 # 打开外观中心；ZCode 没运行时打开配置目录
+zcode-canvas pet on                               # 打开桌宠（off 关闭）
+zcode-canvas set pet.scale 1                      # 桌宠大小 0.6~2.5，也可设 pet.volume / pet.sound / pet.bubble
 zcode-canvas help                                 # 所有命令和可设置的键
 ```
 
@@ -419,6 +443,8 @@ npm run build
 [dream-work-theme](https://github.com/xxxhh336/dream-work-theme)。
 
 `endfield` 主题改编自 DSH 主题 [dsh-theme-endfield](https://github.com/ymh0000123/dsh-theme-endfield)（MIT），详见 [NOTICE.md](NOTICE.md)。
+
+桌宠的形象、气泡、台词和音效来自 [zcode-fox-widget](https://github.com/pigeon189/zcode-fox-widget) 及其上游 [DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)（MIT），详见 [NOTICE.md](NOTICE.md)。
 
 `yorha` 主题是 NieR:Automata 的非官方同人作品，与 SQUARE ENIX、PlatinumGames 无关。寄叶徽标的权利归 SQUARE ENIX 所有，不适用本项目的 MIT 许可，详见 [NOTICE.md](NOTICE.md)。
 
