@@ -45,6 +45,8 @@
 | 卡片通知的 IPC 通道 `zcode:show-task-notification`：渲染层弹出提问或审批卡片时发送（ZCode 设置里的“通知”关闭时不发；只发当前打开的会话；切换到会话时已存在的卡片不发），载荷 `{ taskId: 会话 id, status: "permission_request" \| "elicitation_request", requestId: 卡片 id }` | `packages/shared/src/channels.ts` 的 `ShowTaskNotification`、`validation.ts` 的 `taskNotificationPayloadSchema`、`ui/src/hooks/useTaskNotifications.ts` | `src/runtime/main.ts` 的 `observeZCodeIpc`、`src/shared/pet-state.ts` 的 `parsePromptNotification` | 桌宠不再显示“等你回应” |
 | Electron fuse：asar 完整性校验关闭，RunAsNode 开启 | `ZCode.exe` 的打包配置 | 整个补丁方案 | 完整性校验一旦开启，补丁方案整体失效（见第 5 节） |
 | 事件日志的位置和文件名：`ZCODE_LOG_DIR`，否则 `~/.zcode/cli/log/zcode-<本地日期>.jsonl`，每行一个 JSON，只追加 | `apps/zcode-cli/packages/adapters/src/logging/index.ts`、`retention.ts` 的 `formatLocalLogDate` | `src/runtime/pet-log.ts` | 桌宠一直待机 |
+| ZCode 用 `BrowserWindow` 列表挑窗口（`isLastWindow`、OAuth 深链与更新弹窗里 `getAllWindows()[0]` 的兜底、`browser-window-created`），并靠 `window-all-closed` 在 macOS/Linux 上退出；任何还开着的 `BaseWindow` 都会让 `window-all-closed` 不触发 | `packages/desktop/src/main/index.ts`、`desktopOAuthDeepLink.ts`、`autoUpdater.ts`、`forceUpdatePrompt.ts` | `src/runtime/pet-desktop.ts`（桌面桌宠用 `BaseWindow`，这些逻辑都看不到它）、`src/runtime/main.ts` 的 `track`/`syncDesktopPet`（主窗口页面清零时同步销毁桌宠） | ZCode 改成按 `BaseWindow` 挑窗口时，可能选中桌宠；销毁时机失效时，ZCode 关完窗口不退出（只能在任务管理器结束），这是桌面模式最需要回归的一条 |
+| ZCode 的 ARMS 采集脚本经全局 `web-contents-created` 注入所有页面（含 Canvas 自建的桌宠页面），回传依赖默认会话里的 `arms-rum-preload.cjs` | ZCode 主进程的遥测初始化 | `src/runtime/pet-desktop.ts` 的独立会话分区 `zcode-canvas-pet` | 桌宠页面里仍会出现 `ArmsRumBrowser`、`RumSDK`，但独立分区里没有回传通道，控制台打出 `ArmsEventBridge is not available, events dropped`，数据被丢弃；若 ZCode 改成别的回传方式，桌宠页面可能被当成 ZCode 页面上报 |
 | 日志事件及字段：`turn.started` / `turn.completed` / `turn.failed`（手动停止时 `status` 为 `cancelled`），`model.request.started`，`tool.call.started` / `completed` / `failed` 的 `toolCallId`，`tool.permission.resolved` 的 `context.requestId`（与卡片 id 相同，回答、批准、拒绝都会写），`context.querySource`（`main_turn` / `subagent`），子代理会话 id `sess_subagent_<agentId>` 及父会话的 `subagent.*` 事件 | ZCode core runtime、`core/tool/executor/call-runner.ts`、`permission-flow.ts`、subagent 模块的日志调用 | `src/shared/pet-state.ts` 的 `parseLogLine` | 对应的状态不再出现，或桌宠停在某个状态直到超时兜底（回合 10 分钟，卡片 4 小时） |
 
 新增任何对 ZCode 内部实现的依赖，都要先在这张表里加一行。
@@ -73,13 +75,22 @@
 ### 桌宠的边界
 
 - 默认关闭，只有 `config.pet.enabled` 为 true 且 Canvas 总开关打开时才出现。它不是外观的一部分：不写进主题，“丢弃”外观覆盖时保留，`unsaved` 也不计它。
-- 和外观浮层一样只挂在主渲染页，DOM 封装在自有的 closed Shadow DOM 里，不查询、不观察宿主 DOM。唯一的全局监听是窗口上的被动 `pointermove`，用来判断指针是否在图片不透明的像素上，从而让透明部分的点击穿透给 ZCode。按下时阻止默认行为，不会抢走输入框焦点。
+- 住在两处之一：ZCode 主窗口页面里（默认，**每个主窗口一只**），或者桌面模式（`config.pet.desktop`，只在 Windows 生效）下 Canvas 自建的独立窗口里（**全局一只**，窗口里的那只隐藏）。两处共用显示层 `src/runtime/pet-display.ts`（素材、气泡、台词、音效、按压、表情、透明像素判定），只有摆放不同：窗口内是 `pet.ts`，桌面是 `pet-desktop-page.ts` 加主进程的 `pet-desktop.ts`。
+- 窗口内：和外观浮层一样只挂在主渲染页，DOM 封装在自有的 closed Shadow DOM 里，不查询、不观察宿主 DOM。唯一的全局监听是窗口上的被动 `pointermove`，用来判断指针是否在图片不透明的像素上，从而让透明部分的点击穿透给 ZCode。按下时阻止默认行为，不会抢走输入框焦点。
+- 桌面模式的窗口：
+  - `BaseWindow` 加 `WebContentsView`，不是 `BrowserWindow`，ZCode 按 `BrowserWindow` 挑窗口的逻辑都看不到它（第 3 节）。透明、无边框、不进任务栏、不可聚焦（点她不会把系统焦点交给一个 ZCode 不认识的窗口），置顶用 `"screen-saver"` 级别（其他级别实测不真正置顶）。先显示再加载页面：页面在隐藏的 `BaseWindow` 里开始绘制时永远不上屏（实测）。
+  - 生命周期只看 `main.ts` 的 `renderers`（通过 `CHANNEL_GET` 握手和 `senderIsMainWindow` 校验的主窗口页面）：数量归零时在 `destroyed` 回调里同步销毁桌宠，否则 `window-all-closed` 不会触发；数量大于零且桌面模式开着时确保桌宠存在。不用 `browser-window-created` 判断主窗口。握手失效时 `renderers` 为空，桌宠不出现。桌宠窗口的 `close` 永远不阻止；窗口 `closed` 时显式关闭 `WebContentsView` 的 webContents（它不随窗口释放）。显示器、缩放变化时销毁重建。
+  - 页面在独立的非持久化会话分区 `zcode-canvas-pet` 里，`contextIsolation`、`sandbox`、无 Node；专用 preload 只暴露桌宠用的通道，主进程按 webContents 身份（不按 URL）认它。它收得到 `CHANNEL_PET` 推送、可以请求 `CHANNEL_PET_GET`，但不在 `renderers` 里：不收 CSS，也不影响生命周期判断。拒绝打开新窗口、拒绝导航。
+  - 点击穿透分三态：离得远时完全穿透（不装钩子）；进入狐娘外扩 96px、离开 128px 的范围内时穿透并转发鼠标移动（系统级低层鼠标钩子，一直开着会让别的窗口光标闪烁，所以只在附近开）；页面判定光标在不透明像素或打开的气泡上时可交互。判定只在光标还停在判定时的位置时有效；光标停下而没有收到移动时，主进程 250ms 一次的轮询会请页面判定当前点。拖动期间锁定为可交互。每 5 秒、拖动结束、休眠恢复后重新设置一次原生状态。
+  - `setContentProtection(true)`：ZCode 的电脑操作会截屏再按坐标点击，桌宠不能出现在截图里挡住目标、截走点击。代价是用户也截不到她。
+  - 拖动用固定尺寸的 `setBounds` 移动窗口（`setPosition` 在小数缩放下每次让窗口长大约 1px）。位置是 UI 偏好，存 Canvas 目录下的 `pet-position.json`（不进 `config.json`，热重载不监听它），记离最近工作区边缘的距离和所在工作区，恢复时限制在工作区内；吸附贴屏幕工作区边缘，靠左时转身。
+  - macOS、Linux 上开关不可用并说明原因：Linux（Wayland）下应用不能自己定位窗口，也不支持“透明处穿透、不透明处可点”；macOS 未验证。
 - 状态来自两处，都是只读的（第 3 节）。一是 ZCode 的事件日志：主进程里的定时器每 500ms 读一次追加的内容，桌宠关闭时停止；启动时从当天日志的末尾开始，不回放历史；一次积压超过 1MB 时跳过旧的部分。二是 ZCode 渲染层发给主进程的卡片通知：只在被观察的两个通道上包一层监听，原样转交给 ZCode 自己的处理函数，其他通道保持 ZCode 注册的原函数，`removeListener` 不受影响。日志里没有“等待用户”的记录，所以“等你回应”只来自卡片通知，不做推断。
-- 不开端口、不起进程、不写 ZCode 的任何文件、不读对话内容（只用事件名、会话 id、工具调用 id 和卡片 id）。
+- 不开端口、不起额外进程（桌面模式的页面进程是 Electron 在 ZCode 进程树里起的渲染进程，见第 6 节）、不写 ZCode 的任何文件、不读对话内容（只用事件名、会话 id、工具调用 id 和卡片 id）。
 - 各会话分别跟踪，按紧急程度合并成一个状态：等你回应 > 出错 > 干活 > 思考 > 完成 > 待机。“完成”和“出错”只看主会话这一轮的结束；手动停止（`turn.failed` 且 `status` 为 `cancelled`）不算出错；子代理运行时只算干活。回合 10 分钟没有任何事件就当作已经结束。思考、干活、待机之间的切换至少保持 1.5 秒，避免闪烁。
 - “等你回应”：卡片弹出即进入，按卡片 id 去重，多张卡片全部处理完才退出。同一 id 的 `tool.permission.resolved` 出现即退出（回答、批准、拒绝、自动作答都会写）；这一轮结束时清掉该会话的卡片；id 不是 `perm_` 开头的卡片没有对应日志，在该会话的下一条事件时退出；4 小时兜底。ZCode 不发通知的情况就不提醒：卡片在没打开的会话里、切到会话时卡片已经存在、设置里关闭了“通知”、卡片已在时刷新或重启。
 - 读不懂的行直接忽略；跟随出错时每种错误只写一次 `runtime.log`。旧版主进程没有桌宠通道时，新版 preload 的请求被拒绝，桌宠不出现，其他功能照常。
-- 位置是本地 UI 偏好（`localStorage` 的 `zcode-canvas:pet:v1`），不写进配置。
+- 窗口内的位置是本地 UI 偏好（`localStorage` 的 `zcode-canvas:pet:v1`），不写进配置；桌面模式的位置见上。
 - 素材随包发布在 `pets/`，`apply` 时部署到运行时目录，以 `file:` URL 加载，不联网。
 
 ## 4. 修复门槛
@@ -99,7 +110,7 @@
 ## 6. 不做的事
 
 - 不开调试端口，不走 CDP。理由：CDP 注入要求 ZCode 始终由 Canvas 的启动器带着 `--remote-debugging-port` 启动，而 Dock、Spotlight、登录项、更新后的自动重启都会绕过启动器，主题随启动方式时有时无；真机验证过第二实例在建立 renderer target 前就会因 ZCode 的单实例锁退出，连旁路启动都不可行。CDP 也拿不到主进程能力（外观中心面板、菜单栏入口、vibrancy 开关、启动画面），并让调试端口在应用整个生命周期对本地所有进程敞开。而它想避免的代价——ad-hoc 重签名——经真机验证（macOS Tahoe 25.4）不影响登录、钥匙串和启动，实际成本为零。"不改 app"的正解是第 5 节的官方扩展点，不是 CDP。
-- 不留常驻进程；只允许一次性的后台助手，任务完成或超时就退出。
+- 不留常驻进程；只允许一次性的后台助手，任务完成或超时就退出。例外：桌宠桌面模式会在 ZCode 自己的进程树里多一个渲染进程（约 26 MB），随最后一个 ZCode 主窗口页面关闭而销毁，不会比 ZCode 活得更久。
 - 不修改官方 renderer 的代码，不向官方命令面板注册命令。
 - 不执行、不解包、不修改 Wallpaper Engine 内容，只导入静态图片（GIF 由浏览器自己播放）。
 - 官方更新后不自动重新打补丁，由用户重新执行 `zcode-canvas apply`：自动重打要和官方安装器竞争时序，还需要隐藏的后台辅助进程。
