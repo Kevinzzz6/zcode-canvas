@@ -3,13 +3,12 @@
 // identity and data, for testing ZCode Canvas without touching the real installation, its running
 // instance or the real user profile.
 //
-//   node scripts/sandbox-mac.mjs <sandbox-dir> [--port 9555] [--from /Applications/ZCode.app] [--pet-desktop]
+//   node scripts/sandbox-mac.mjs <sandbox-dir> [--port 9555] [--from /Applications/ZCode.app]
 //
 // <sandbox-dir>/ZCode.app is copied from --from with ditto the first time (the copy, never the
 // original, is what Canvas patches and re-signs). home/ is created next to it.
 // ZCODE_DESKTOP_USER_DATA_DIR is what keeps the copy off the real instance's single-instance lock:
 // ZCode sets its own userData path, overriding a bare --user-data-dir.
-// --pet-desktop passes ZCODE_CANVAS_PET_DESKTOP=force, the test switch for desktop-mode pets.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -54,7 +53,6 @@ Object.assign(env, {
   ZCODE_DESKTOP_APPLICATION_NAME: "ZCode Canvas Sandbox",
   ZCODE_DESKTOP_HOME_DIR: home,
   ZCODE_DESKTOP_USER_DATA_DIR: userData,
-  ...(args.includes("--pet-desktop") ? { ZCODE_CANVAS_PET_DESKTOP: "force" } : {}),
 });
 
 const child = spawn(join(app, "Contents", "MacOS", "ZCode"), [`--remote-debugging-port=${port}`], {
@@ -64,4 +62,7 @@ const child = spawn(join(app, "Contents", "MacOS", "ZCode"), [`--remote-debuggin
 });
 child.unref();
 console.log(`sandbox pid=${child.pid} cdp=http://127.0.0.1:${port} home=${home}`);
+// Its helpers exit with it. A path pattern (pkill -f "_sandbox/ZCode.app") also works when typed,
+// but kills any script or agent whose own command line contains it.
+console.log(`stop it: kill ${child.pid}`);
 console.log(`install a build into it: HOME="${home}" ZCODE_CANVAS_HOME="${canvasHome}" node dist/cli.js apply --zcode "${app}"`);
