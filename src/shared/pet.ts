@@ -19,6 +19,8 @@ export interface PetSpec {
   sound?: PetSound;
   /** Speech bubbles on click and when the agent needs attention. */
   bubble?: boolean;
+  /** One pet on the desktop, in Canvas's own window, instead of one inside each ZCode window. */
+  desktop?: boolean;
 }
 
 export interface ResolvedPet {
@@ -27,14 +29,32 @@ export interface ResolvedPet {
   volume: number;
   sound: PetSound;
   bubble: boolean;
+  /** Desktop mode in effect: asked for, and available on this platform. */
+  desktop: boolean;
+}
+
+/**
+ * Desktop mode ships on Windows first. Under Wayland Linux apps cannot place their own windows, and
+ * Linux has no "click through the transparent parts only"; macOS is untested.
+ */
+export function desktopPetSupported(platform: string): boolean {
+  return platform === "win32";
+}
+
+/** Side length of the pet's square box, in px, for an area of this size: the fox widget's --zcw-base. */
+export function petBase(width: number, height: number, scale: number): number {
+  return Math.min(625, Math.max(122, Math.min(250, Math.min(width, height) * 0.28) * scale));
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
-/** `canvasEnabled` false (the master switch) hides the pet along with everything else. */
-export function resolvePet(spec: unknown, canvasEnabled = true): ResolvedPet {
+/**
+ * `canvasEnabled` false (the master switch) hides the pet along with everything else.
+ * `desktopAvailable` false (see desktopPetSupported) keeps the pet inside the windows.
+ */
+export function resolvePet(spec: unknown, canvasEnabled = true, desktopAvailable = false): ResolvedPet {
   const own = spec && typeof spec === "object" && !Array.isArray(spec) ? (spec as PetSpec) : {};
   return {
     enabled: canvasEnabled && own.enabled === true,
@@ -42,6 +62,7 @@ export function resolvePet(spec: unknown, canvasEnabled = true): ResolvedPet {
     volume: clamp(own.volume, 0, 1, PET_VOLUME_FALLBACK),
     sound: PET_SOUNDS.includes(own.sound as PetSound) ? (own.sound as PetSound) : "duck",
     bubble: own.bubble !== false,
+    desktop: desktopAvailable && own.desktop === true,
   };
 }
 
@@ -50,7 +71,7 @@ export function parsePetPatch(raw: unknown): PetSpec {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid pet request");
   const patch: PetSpec = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if ((key === "enabled" || key === "bubble") && typeof value === "boolean") patch[key] = value;
+    if ((key === "enabled" || key === "bubble" || key === "desktop") && typeof value === "boolean") patch[key] = value;
     else if (key === "scale" && typeof value === "number" && value >= PET_SCALE.min && value <= PET_SCALE.max) patch.scale = value;
     else if (key === "volume" && typeof value === "number" && value >= 0 && value <= 1) patch.volume = value;
     else if (key === "sound" && PET_SOUNDS.includes(value as PetSound)) patch.sound = value as PetSound;
@@ -81,5 +102,6 @@ export function decodePet(payload: unknown): Omit<PetPayload, "v"> | null {
   if (!payload || typeof payload !== "object") return null;
   const { v, pet, mood, assets } = payload as Partial<PetPayload>;
   if (v !== PROTOCOL_VERSION || !pet || !assets || !PET_MOODS.includes(mood as PetMood)) return null;
-  return { pet: resolvePet(pet), mood: mood as PetMood, assets };
+  // Whether desktop mode applies was decided by the main process; only the shape is checked here.
+  return { pet: resolvePet(pet, true, true), mood: mood as PetMood, assets };
 }

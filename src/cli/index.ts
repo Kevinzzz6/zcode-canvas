@@ -102,6 +102,7 @@ function helpText(): string {
   pet.volume                  音量 0~1，0 = 静音
   pet.sound                   ${PET_SOUNDS.join(" | ")}（小黄鸭 / 音效 1）
   pet.bubble                  true | false，是否说话（点击和需要你关注时的气泡）
+  pet.desktop                 true | false（默认 false），桌面模式：全局一只，ZCode 最小化时也在；目前只支持 Windows
 `;
 }
 
@@ -135,7 +136,7 @@ function writeConfig(config: CanvasConfig) {
 }
 
 const FILE_KEYS = new Set(["wallpaper.image", "wallpaper.dark.image", "wallpaper.light.image", "startup.logo"]);
-const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|palette\.(seed|variant|backdrop)|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|glass\.regions\.(frame\.opacity|(main|card|input)\.(opacity|blur))|startup\.(background|logo|logoSize|animation)|pet\.(enabled|scale|volume|sound|bubble))$/;
+const ALLOWED_KEY = /^(enabled|theme|accent|accent\.(dark|light)|colors\.(dark|light)\.(--color-)?[a-z0-9][a-z0-9-]*|radius|palette\.(seed|variant|backdrop)|vars\.((dark|light)\.)?--[\w-]+|wallpaper\.((dark|light)\.)?(image|fit|position|blur|dim|overlay|scale|saturate|brightness|contrast|grayscale)|glass\.(material|opacity|blur)|glass\.regions\.(frame\.opacity|(main|card|input)\.(opacity|blur))|startup\.(background|logo|logoSize|animation)|pet\.(enabled|scale|volume|sound|bubble|desktop))$/;
 const UNSETTABLE_GROUP = /^(colors|colors\.(dark|light)|palette|vars|vars\.(dark|light)|wallpaper|wallpaper\.(dark|light)|glass|glass\.regions|glass\.regions\.(frame|main|card|input)|startup|pet)$/;
 
 function parseValue(key: string, raw: string): unknown {

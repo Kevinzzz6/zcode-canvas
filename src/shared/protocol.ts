@@ -19,6 +19,17 @@ export const CHANNEL_PANEL_LOG = "zcode-canvas:panel-log";
 /** The desktop pet: GET answers the current payload (shared/pet.ts), PET pushes every change. */
 export const CHANNEL_PET_GET = "zcode-canvas:pet-get";
 export const CHANNEL_PET = "zcode-canvas:pet";
+/**
+ * Only between the main process and the desktop-mode pet page (runtime/pet-desktop-*.ts), accepted
+ * from that page's own webContents and nowhere else. POINTER reports what is under the cursor,
+ * PROBE asks the page to check one point when no move told it, DRAG moves the window, FACING tells
+ * the page which way to look, LOG carries its errors.
+ */
+export const CHANNEL_PET_POINTER = "zcode-canvas:pet-pointer";
+export const CHANNEL_PET_PROBE = "zcode-canvas:pet-probe";
+export const CHANNEL_PET_DRAG = "zcode-canvas:pet-drag";
+export const CHANNEL_PET_FACING = "zcode-canvas:pet-facing";
+export const CHANNEL_PET_LOG = "zcode-canvas:pet-log";
 
 /**
  * Not a Canvas channel: ZCode's own notification that its shortcut recorder armed/disarmed

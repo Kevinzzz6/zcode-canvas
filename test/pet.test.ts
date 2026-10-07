@@ -224,8 +224,8 @@ test("the service follows the log only while the pet is on and pushes every chan
 });
 
 test("pet settings default to off and are clamped; the master switch hides the pet", () => {
-  assert.deepEqual(resolvePet(undefined), { enabled: false, scale: 1.5, volume: 0.9, sound: "duck", bubble: true });
-  assert.deepEqual(resolvePet({ enabled: true, scale: 9, volume: -1, sound: "loud", bubble: false }), { enabled: true, scale: 2.5, volume: 0, sound: "duck", bubble: false });
+  assert.deepEqual(resolvePet(undefined), { enabled: false, scale: 1.5, volume: 0.9, sound: "duck", bubble: true, desktop: false });
+  assert.deepEqual(resolvePet({ enabled: true, scale: 9, volume: -1, sound: "loud", bubble: false }), { enabled: true, scale: 2.5, volume: 0, sound: "duck", bubble: false, desktop: false });
   assert.equal(resolvePet({ enabled: true }, false).enabled, false);
   assert.equal(resolvePet({ scale: 1.23 }).scale, 1.2);
   assert.equal(resolvePet("on").enabled, false);

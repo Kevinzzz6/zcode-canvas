@@ -192,6 +192,8 @@ export const paths = {
   builtinThemes: (home: string) => join(home, "runtime", "themes"),
   log: (home: string) => join(home, "runtime.log"),
   openRequest: (home: string) => join(home, ".open-panel"),
+  /** Where the desktop-mode pet sits (runtime/pet-desktop-position.ts). A UI preference, not config. */
+  petPosition: (home: string) => join(home, "pet-position.json"),
 };
 
 export const DEFAULT_CONFIG: CanvasConfig = { enabled: true, theme: null };
