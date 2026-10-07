@@ -1,11 +1,11 @@
 import type { PanelData, PanelInput } from "./panel.ts";
 import { overlayStyle } from "./overlay-style.ts";
 import { mountStudio, studioMarkup } from "./overlay-studio.ts";
-import { createRegionHighlight, diagnose, displayNumber, formatKnob, fromSlider, inputKey, isTransparency, knobRangeText, knobs, knobValue, parseKnobInput, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
+import { createRegionHighlight, diagnose, petPlacementNote, displayNumber, formatKnob, fromSlider, inputKey, isTransparency, knobRangeText, knobs, knobValue, parseKnobInput, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type Knob, type Size } from "./overlay-preview.ts";
 import { GLASS_REGIONS, type GlassRegion } from "../shared/glass.ts";
 import type { WallpaperFit } from "../shared/look.ts";
 import { extractColors, generatePalette, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
-import { PET_SCALE, resolvePet } from "../shared/pet.ts";
+import { desktopPetSupported, PET_SCALE, resolvePet } from "../shared/pet.ts";
 
 export interface OverlayApi {
   get(): Promise<PanelData>;
@@ -102,7 +102,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
             <label class="select-row">音效<select id="pet-sound" aria-label="桌宠音效"><option value="duck">小黄鸭</option><option value="fx1">音效 1</option></select></label>
             <label class="select-row">音量<span class="pet-range"><input type="range" id="pet-volume" min="0" max="1" step="0.05" aria-label="桌宠音量"><small id="pet-volume-value"></small></span></label>
             <div class="select-row">说话<span class="mode-switch" role="group" aria-label="桌宠气泡"><button id="pet-quiet" type="button">关</button><button id="pet-talk" type="button">开</button></span></div>
-            <div class="hint">拖动可换位置，靠近窗口边缘会吸附。</div>
+            <div class="select-row">桌面模式<span class="mode-switch" role="group" aria-label="桌宠桌面模式"><button id="pet-window" type="button">关</button><button id="pet-desktop" type="button">开</button></span></div>
+            <div id="pet-hint" class="hint"></div>
           </div>
         </div>
       </div>
@@ -651,16 +652,20 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   }
   function renderPet() {
     if (!data) return;
-    const pet = resolvePet(data.config.pet);
+    const pet = resolvePet(data.config.pet, true, desktopPetSupported(data.platform));
+    const placement = petPlacementNote(data.platform, pet.desktop);
     const off = data.config.enabled === false;
     const press = (id: string, value: boolean) => $(id).setAttribute("aria-pressed", String(value));
     press("pet-on", pet.enabled); press("pet-off", !pet.enabled);
     press("pet-talk", pet.bubble); press("pet-quiet", !pet.bubble);
+    press("pet-desktop", pet.desktop); press("pet-window", !pet.desktop);
     $("pet-rows").hidden = !pet.enabled;
     showPetRange("pet-scale", pet.scale);
     showPetRange("pet-volume", pet.volume);
     $<HTMLSelectElement>("pet-sound").value = pet.sound;
     for (const id of ["pet-on", "pet-off", "pet-talk", "pet-quiet", "pet-scale", "pet-volume", "pet-sound"]) ($(id) as HTMLButtonElement).disabled = busy || off;
+    for (const id of ["pet-window", "pet-desktop"]) ($(id) as HTMLButtonElement).disabled = busy || off || !placement.available;
+    $("pet-hint").textContent = placement.hint;
   }
   function showPetRange(id: "pet-scale" | "pet-volume", value: number) {
     const input = $<HTMLInputElement>(id);
@@ -736,6 +741,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   listen($("pet-off"), "click", () => applyPet({ enabled: false }, "桌宠已收起"));
   listen($("pet-talk"), "click", () => applyPet({ bubble: true }, "桌宠会说话了"));
   listen($("pet-quiet"), "click", () => applyPet({ bubble: false }, "桌宠不再说话 · 只做表情和动作"));
+  listen($("pet-desktop"), "click", () => applyPet({ desktop: true }, "桌宠搬到桌面上了 · ZCode 最小化时也在"));
+  listen($("pet-window"), "click", () => applyPet({ desktop: false }, "桌宠回到窗口里了"));
   listen($("pet-sound"), "change", () => applyPet({ sound: $<HTMLSelectElement>("pet-sound").value }, "已更换桌宠音效"));
   for (const id of ["pet-scale", "pet-volume"] as const) {
     const input = $<HTMLInputElement>(id);

@@ -1,6 +1,23 @@
 import { mainCappedByFrame, type GlassRegion } from "../shared/glass.ts";
 import type { ResolvedLook, ResolvedWallpaper, WallpaperFit } from "../shared/look.ts";
+import { desktopPetSupported } from "../shared/pet.ts";
 import { positionAxes } from "../shared/position.ts";
+
+/**
+ * The pet's desktop-mode switch: usable only where desktop mode exists, and the note under it says
+ * why not, or what the current mode means.
+ */
+export function petPlacementNote(platform: string, desktop: boolean): { available: boolean; hint: string } {
+  if (!desktopPetSupported(platform)) {
+    return { available: false, hint: "桌面模式目前只支持 Windows：Linux（Wayland）下应用不能自己摆放窗口，也做不到只让透明处穿透点击；macOS 尚未验证。" };
+  }
+  return {
+    available: true,
+    hint: desktop
+      ? "全局一只，住在屏幕上，ZCode 最小化或被挡住时也在。拖动可换位置，靠近屏幕边缘会吸附。她不会出现在截图和录屏里。"
+      : "每个 ZCode 窗口里一只。拖动可换位置，靠近窗口边缘会吸附。",
+  };
+}
 
 /** UI control metadata. API names and ranges are validated again by the main process. */
 export const knobs = {

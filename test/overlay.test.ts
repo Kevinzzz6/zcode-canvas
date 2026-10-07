@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPreviewController } from "../src/runtime/preview-controller.ts";
-import { createRegionHighlight, diagnose, displayNumber, formatKnob, fromSlider, HIGHLIGHT_LINGER, inputKey, knobs, parseKnobInput, positionSlack, positionValue, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type DiagnosisInput, type Knob } from "../src/runtime/overlay-preview.ts";
+import { createRegionHighlight, diagnose, displayNumber, formatKnob, fromSlider, HIGHLIGHT_LINGER, inputKey, knobs, parseKnobInput, petPlacementNote, positionSlack, positionValue, regionOf, SLIDER_SPAN, stepKnob, toSlider, trackFraction, type DiagnosisInput, type Knob } from "../src/runtime/overlay-preview.ts";
 import type { GlassRegion } from "../src/shared/glass.ts";
 import type { ResolvedWallpaper } from "../src/shared/look.ts";
 import { positionAxes } from "../src/shared/position.ts";
@@ -19,6 +19,21 @@ test("only the main file renderer page gets the injected UI", () => {
   assert.equal(isMainWindowUrl("file:///C:/ZCode/out/renderer/other.html"), false);
   assert.equal(isMainWindowUrl("file:///C:/ZCode/out/renderer/index.html/child"), false);
   assert.equal(isMainWindowUrl("not a URL"), false);
+});
+
+test("the pet's desktop-mode switch is Windows-only and says why elsewhere", () => {
+  for (const platform of ["darwin", "linux"]) {
+    const note = petPlacementNote(platform, true);
+    assert.equal(note.available, false, platform);
+    assert.match(note.hint, /只支持 Windows/);
+    assert.match(note.hint, /Wayland/);
+    assert.match(note.hint, /macOS 尚未验证/);
+  }
+  assert.deepEqual(Object.keys(petPlacementNote("win32", false)), ["available", "hint"]);
+  assert.equal(petPlacementNote("win32", false).available, true);
+  assert.match(petPlacementNote("win32", false).hint, /每个 ZCode 窗口里一只/);
+  assert.match(petPlacementNote("win32", true).hint, /全局一只/);
+  assert.match(petPlacementNote("win32", true).hint, /截图和录屏/, "the capture exclusion is stated where the switch is");
 });
 
 test("position percentages and brightness ratios use their respective display scales", () => {
