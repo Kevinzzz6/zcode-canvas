@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFileSync, rmSync } from "node:fs";
+import { chmodSync, copyFileSync, rmSync } from "node:fs";
 
 rmSync("dist", { recursive: true, force: true });
 
@@ -12,6 +12,8 @@ await build({
   format: "esm",
   banner: { js: "#!/usr/bin/env node" },
 });
+// npm sets the bin's mode when installing from the tarball, but `npm link` uses this file as built.
+chmodSync("dist/cli.js", 0o755);
 
 // Loaded inside ZCode's Electron main process; must be CommonJS so the bootstrap can require() it
 // synchronously before ZCode's own entry runs.
