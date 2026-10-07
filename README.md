@@ -316,7 +316,7 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 
 从 0.2 升级上来的，记得重新 `zcode-canvas apply` 一次并重启 ZCode：桌宠的图片和音效随运行时一起部署，不重新 `apply` 的话，打开桌宠也看不到她。
 
-### 桌面模式（Windows）
+### 桌面模式（Windows，0.4.0 新增）
 
 默认每个 ZCode 窗口里各住一只，ZCode 一最小化、缩到托盘或被别的窗口挡住就看不到她。打开外观中心“桌宠”里的“桌面模式”（或运行 `zcode-canvas set pet.desktop true`），窗口里的桌宠会收起，换成**全局一只**，住在 Canvas 自己的透明小窗里，始终在最上层：ZCode 最小化、缩到托盘、被挡住时都看得到她，“等你回应”也照常提醒。
 
