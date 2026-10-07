@@ -1,22 +1,21 @@
 import { mainCappedByFrame, type GlassRegion } from "../shared/glass.ts";
 import type { ResolvedLook, ResolvedWallpaper, WallpaperFit } from "../shared/look.ts";
-import { desktopPetSupported } from "../shared/pet.ts";
+import type { DesktopPetAvailability } from "../shared/pet.ts";
 import { positionAxes } from "../shared/position.ts";
 
 /**
- * The pet's desktop-mode switch: usable only where desktop mode exists, and the note under it says
- * why not, or what the current mode means.
+ * The pet's desktop-mode switch: usable only where desktop mode exists (or is forced for testing),
+ * and the note under it says why not, or what the current mode means. Anything but a known value
+ * (a main process from before desktop mode) counts as unavailable.
  */
-export function petPlacementNote(platform: string, desktop: boolean): { available: boolean; hint: string } {
-  if (!desktopPetSupported(platform)) {
+export function petPlacementNote(availability: DesktopPetAvailability | undefined, desktop: boolean): { available: boolean; hint: string } {
+  if (availability !== "supported" && availability !== "forced") {
     return { available: false, hint: "桌面模式目前只支持 Windows：Linux（Wayland）下应用不能自己摆放窗口，也做不到只让透明处穿透点击；macOS 尚未验证。" };
   }
-  return {
-    available: true,
-    hint: desktop
-      ? "全局一只，住在屏幕上，ZCode 最小化或被挡住时也在。拖动可换位置，靠近屏幕边缘会吸附。她不会出现在截图和录屏里。"
-      : "每个 ZCode 窗口里一只。拖动可换位置，靠近窗口边缘会吸附。",
-  };
+  const mode = desktop
+    ? "全局一只，住在屏幕上，ZCode 最小化或被挡住时也在。拖动可换位置，靠近屏幕边缘会吸附。她不会出现在截图和录屏里。"
+    : "每个 ZCode 窗口里一只。拖动可换位置，靠近窗口边缘会吸附。";
+  return { available: true, hint: availability === "forced" ? `测试开关 ZCODE_CANVAS_PET_DESKTOP=force 已打开，这个平台上的桌面模式尚未验证。${mode}` : mode };
 }
 
 /** UI control metadata. API names and ranges are validated again by the main process. */

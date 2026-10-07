@@ -41,6 +41,18 @@ export function desktopPetSupported(platform: string): boolean {
   return platform === "win32";
 }
 
+/**
+ * "forced": ZCode was started with ZCODE_CANVAS_PET_DESKTOP=force on a platform desktop mode is not
+ * offered on yet, to try it on a real machine (docs/mac-test-plan.md). Never set by Canvas itself,
+ * not persisted, and without effect where desktop mode is supported anyway.
+ */
+export type DesktopPetAvailability = "supported" | "forced" | "unavailable";
+
+export function desktopPetAvailability(platform: string, env: Record<string, string | undefined> = {}): DesktopPetAvailability {
+  if (desktopPetSupported(platform)) return "supported";
+  return env.ZCODE_CANVAS_PET_DESKTOP === "force" ? "forced" : "unavailable";
+}
+
 /** Side length of the pet's square box, in px, for an area of this size: the fox widget's --zcw-base. */
 export function petBase(width: number, height: number, scale: number): number {
   return Math.min(625, Math.max(122, Math.min(250, Math.min(width, height) * 0.28) * scale));

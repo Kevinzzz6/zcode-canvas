@@ -5,7 +5,7 @@ import { createRegionHighlight, diagnose, petPlacementNote, displayNumber, forma
 import { GLASS_REGIONS, type GlassRegion } from "../shared/glass.ts";
 import type { WallpaperFit } from "../shared/look.ts";
 import { extractColors, generatePalette, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
-import { desktopPetSupported, PET_SCALE, resolvePet } from "../shared/pet.ts";
+import { PET_SCALE, resolvePet } from "../shared/pet.ts";
 
 export interface OverlayApi {
   get(): Promise<PanelData>;
@@ -652,8 +652,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   }
   function renderPet() {
     if (!data) return;
-    const pet = resolvePet(data.config.pet, true, desktopPetSupported(data.platform));
-    const placement = petPlacementNote(data.platform, pet.desktop);
+    const placement = petPlacementNote(data.petDesktop, data.config.pet?.desktop === true);
+    const pet = resolvePet(data.config.pet, true, placement.available);
     const off = data.config.enabled === false;
     const press = (id: string, value: boolean) => $(id).setAttribute("aria-pressed", String(value));
     press("pet-on", pet.enabled); press("pet-off", !pet.enabled);

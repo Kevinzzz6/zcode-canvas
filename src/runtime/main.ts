@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
-import { desktopPetSupported, resolvePet, type PetAssets, type ResolvedPet } from "../shared/pet.ts";
+import { desktopPetAvailability, resolvePet, type PetAssets, type ResolvedPet } from "../shared/pet.ts";
 import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, CHANNEL_PET, CHANNEL_PET_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION } from "../shared/protocol.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
@@ -39,10 +39,12 @@ interface State {
   pet: ResolvedPet;
 }
 
+const desktopAvailability = desktopPetAvailability(process.platform, process.env);
+
 function compute(previous: State): State {
   try {
     const config = readConfig(home);
-    const pet = resolvePet(config.pet, config.enabled !== false, desktopPetSupported(process.platform));
+    const pet = resolvePet(config.pet, config.enabled !== false, desktopAvailability !== "unavailable");
     const { look, warnings } = loadLook(home);
     if (!look) return { css: "", material: OFFICIAL_MATERIAL, pet };
     const result = buildCss(look);
@@ -384,6 +386,7 @@ try {
   // scheduleReload (see above), so the watcher itself passes events through undelayed.
   watchHome(home, scheduleReload, log, 0);
   log(`runtime loaded in ZCode ${app.getVersion()} (css ${state.css.length} bytes, material ${state.material})`);
+  if (desktopAvailability === "forced") log(`desktop pet forced on by ZCODE_CANVAS_PET_DESKTOP=force; untested on ${process.platform}`);
 } catch (error) {
   log(`runtime init failed: ${String(error)}`);
 }

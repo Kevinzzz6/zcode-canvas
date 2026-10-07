@@ -10,7 +10,7 @@ import { buildCss, isSafeCssValue } from "../shared/css.ts";
 import { GLASS_REGIONS, type GlassRegion, type GlassRegionSpec } from "../shared/glass.ts";
 import { listThemes, LOOK_KEYS, MATERIALS, readConfig, resolveLook, WALLPAPER_FITS, writeConfigAtomic, type CanvasConfig, type GlassSpec, type Material, type Mode, type ResolvedLook, type ThemeManifest, type WallpaperFit, type WallpaperLayer } from "../shared/look.ts";
 import { isPaletteColor, PALETTE_VARIANTS, type PaletteSpec, type PaletteVariant } from "../shared/palette.ts";
-import { parsePetPatch } from "../shared/pet.ts";
+import { desktopPetAvailability, parsePetPatch, type DesktopPetAvailability } from "../shared/pet.ts";
 import { positionAxes } from "../shared/position.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PANEL_SELECT_WALLPAPER } from "../shared/protocol.ts";
 import { saveLookAsTheme } from "../shared/save-theme.ts";
@@ -45,6 +45,8 @@ export interface PanelData {
   /** Any personal look override at all, i.e. something "save as theme" would keep and "discard" would drop. */
   unsaved: boolean;
   platform: string;
+  /** Whether the pet's desktop-mode switch works here (shared/pet.ts desktopPetAvailability). */
+  petDesktop: DesktopPetAvailability;
   /** file: URL of the image each mode paints, so the overlay can measure how the fit crops it. */
   imageUrl: Record<Mode, string | null>;
   /** The user's own wallpaper override (file name only), and whether the theme ships one instead. */
@@ -142,6 +144,7 @@ export function readPanelData(home: string): PanelData {
     },
     unsaved: LOOK_KEYS.some((key) => config[key] !== undefined),
     platform: process.platform,
+    petDesktop: desktopPetAvailability(process.platform, process.env),
     imageUrl: { dark: imageUrl("dark"), light: imageUrl("light") },
     wallpaper: { id: id && wallpapers.some((entry) => entry.id === id) ? id : null, file, fromTheme },
   };

@@ -22,18 +22,22 @@ test("only the main file renderer page gets the injected UI", () => {
 });
 
 test("the pet's desktop-mode switch is Windows-only and says why elsewhere", () => {
-  for (const platform of ["darwin", "linux"]) {
-    const note = petPlacementNote(platform, true);
-    assert.equal(note.available, false, platform);
+  for (const availability of ["unavailable", undefined] as const) {
+    const note = petPlacementNote(availability, true);
+    assert.equal(note.available, false, String(availability));
     assert.match(note.hint, /只支持 Windows/);
     assert.match(note.hint, /Wayland/);
     assert.match(note.hint, /macOS 尚未验证/);
   }
-  assert.deepEqual(Object.keys(petPlacementNote("win32", false)), ["available", "hint"]);
-  assert.equal(petPlacementNote("win32", false).available, true);
-  assert.match(petPlacementNote("win32", false).hint, /每个 ZCode 窗口里一只/);
-  assert.match(petPlacementNote("win32", true).hint, /全局一只/);
-  assert.match(petPlacementNote("win32", true).hint, /截图和录屏/, "the capture exclusion is stated where the switch is");
+  assert.deepEqual(Object.keys(petPlacementNote("supported", false)), ["available", "hint"]);
+  assert.equal(petPlacementNote("supported", false).available, true);
+  assert.match(petPlacementNote("supported", false).hint, /每个 ZCode 窗口里一只/);
+  assert.match(petPlacementNote("supported", true).hint, /全局一只/);
+  assert.match(petPlacementNote("supported", true).hint, /截图和录屏/, "the capture exclusion is stated where the switch is");
+  assert.doesNotMatch(petPlacementNote("supported", true).hint, /测试开关/);
+  const forced = petPlacementNote("forced", true);
+  assert.equal(forced.available, true, "forced for testing: the switch works");
+  assert.match(forced.hint, /^测试开关 ZCODE_CANVAS_PET_DESKTOP=force 已打开.*尚未验证.*全局一只/);
 });
 
 test("position percentages and brightness ratios use their respective display scales", () => {

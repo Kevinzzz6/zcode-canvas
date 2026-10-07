@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { desktopPetSupported, decodePet, encodePet, parsePetPatch, resolvePet } from "../src/shared/pet.ts";
+import { desktopPetAvailability, desktopPetSupported, decodePet, encodePet, parsePetPatch, resolvePet } from "../src/shared/pet.ts";
 import { CHANNEL_PET_DRAG, CHANNEL_PET_FACING, CHANNEL_PET_POINTER } from "../src/shared/protocol.ts";
 import { createDesktopPet, DESKTOP_PET_PARTITION, type DesktopPetElectron } from "../src/runtime/pet-desktop.ts";
 import { boundsFromPosition, chooseArea, DEFAULT_DESKTOP_POSITION, facesLeft, parseDesktopPosition, positionFromBounds, snapToArea } from "../src/runtime/pet-desktop-position.ts";
@@ -16,6 +16,12 @@ test("desktop mode is a Windows-only switch, off by default, and survives the pa
   assert.equal(desktopPetSupported("win32"), true);
   assert.equal(desktopPetSupported("darwin"), false);
   assert.equal(desktopPetSupported("linux"), false);
+  // Only an explicit test switch turns it on elsewhere; it does nothing where it is supported.
+  assert.equal(desktopPetAvailability("darwin", {}), "unavailable");
+  assert.equal(desktopPetAvailability("darwin", { ZCODE_CANVAS_PET_DESKTOP: "force" }), "forced");
+  assert.equal(desktopPetAvailability("linux", { ZCODE_CANVAS_PET_DESKTOP: "1" }), "unavailable", "only the exact value");
+  assert.equal(desktopPetAvailability("win32", { ZCODE_CANVAS_PET_DESKTOP: "force" }), "supported");
+  assert.equal(desktopPetAvailability("win32"), "supported");
   assert.equal(resolvePet({ enabled: true }, true, true).desktop, false, "off unless asked for");
   assert.equal(resolvePet({ enabled: true, desktop: true }, true, true).desktop, true);
   assert.equal(resolvePet({ enabled: true, desktop: true }, true, false).desktop, false, "unsupported platforms keep the pet in the windows");

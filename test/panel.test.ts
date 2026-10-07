@@ -6,6 +6,7 @@ import { basename, join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadLook, readConfig, writeConfigAtomic, type CanvasConfig } from "../src/shared/look.ts";
+import { desktopPetAvailability } from "../src/shared/pet.ts";
 import { CHANNEL_PANEL_APPLY, CHANNEL_PANEL_GET, CHANNEL_PANEL_PICK_WALLPAPER, CHANNEL_PANEL_PREVIEW, CHANNEL_PANEL_SAVE_THEME, CHANNEL_PANEL_SELECT_WALLPAPER } from "../src/shared/protocol.ts";
 import {
   applyPanelInput,
@@ -215,6 +216,7 @@ test("personal controls are shared across themes and defaults omit personal over
   assert.equal(data.defaults.radius, null);
   assert.deepEqual(data.overrides, { theme: true, wallpaper: true });
   assert.equal(data.platform, process.platform);
+  assert.equal(data.petDesktop, desktopPetAvailability(process.platform, process.env), "the panel is told whether its desktop switch works");
 });
 
 test("reset removes only controlled tuning and preserves images, theme and unrelated config", () => {
