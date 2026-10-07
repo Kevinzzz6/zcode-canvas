@@ -34,17 +34,17 @@ export interface ResolvedPet {
 }
 
 /**
- * Desktop mode ships on Windows first. Under Wayland Linux apps cannot place their own windows, and
- * Linux has no "click through the transparent parts only"; macOS is untested.
+ * Desktop mode is offered on Windows and macOS. Under Wayland Linux apps cannot place their own
+ * windows, and Linux has no "click through the transparent parts only".
  */
 export function desktopPetSupported(platform: string): boolean {
-  return platform === "win32";
+  return platform === "win32" || platform === "darwin";
 }
 
 /**
  * "forced": ZCode was started with ZCODE_CANVAS_PET_DESKTOP=force on a platform desktop mode is not
- * offered on yet, to try it on a real machine (docs/mac-test-plan.md). Never set by Canvas itself,
- * not persisted, and without effect where desktop mode is supported anyway.
+ * offered on (Linux), to try it on a real machine. Never set by Canvas itself, not persisted, and
+ * without effect where desktop mode is supported anyway.
  */
 export type DesktopPetAvailability = "supported" | "forced" | "unavailable";
 

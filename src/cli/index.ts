@@ -102,7 +102,7 @@ function helpText(): string {
   pet.volume                  音量 0~1，0 = 静音
   pet.sound                   ${PET_SOUNDS.join(" | ")}（小黄鸭 / 音效 1）
   pet.bubble                  true | false，是否说话（点击和需要你关注时的气泡）
-  pet.desktop                 true | false（默认 false），桌面模式：全局一只，ZCode 最小化时也在；目前只支持 Windows
+  pet.desktop                 true | false（默认 false），桌面模式：全局一只，ZCode 最小化时也在；支持 Windows 和 macOS
 `;
 }
 

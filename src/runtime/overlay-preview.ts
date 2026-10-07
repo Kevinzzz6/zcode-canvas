@@ -10,7 +10,7 @@ import { positionAxes } from "../shared/position.ts";
  */
 export function petPlacementNote(availability: DesktopPetAvailability | undefined, desktop: boolean): { available: boolean; hint: string } {
   if (availability !== "supported" && availability !== "forced") {
-    return { available: false, hint: "桌面模式目前只支持 Windows：Linux（Wayland）下应用不能自己摆放窗口，也做不到只让透明处穿透点击；macOS 尚未验证。" };
+    return { available: false, hint: "桌面模式目前只支持 Windows 和 macOS：Linux（Wayland）下应用不能自己摆放窗口，也做不到只让透明处穿透点击。" };
   }
   const mode = desktop
     ? "全局一只，住在屏幕上，ZCode 最小化或被挡住时也在。拖动可换位置，靠近屏幕边缘会吸附。她不会出现在截图和录屏里。"

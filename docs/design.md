@@ -75,16 +75,16 @@
 ### 桌宠的边界
 
 - 默认关闭，只有 `config.pet.enabled` 为 true 且 Canvas 总开关打开时才出现。它不是外观的一部分：不写进主题，“丢弃”外观覆盖时保留，`unsaved` 也不计它。
-- 住在两处之一：ZCode 主窗口页面里（默认，**每个主窗口一只**），或者桌面模式（`config.pet.desktop`，只在 Windows 生效）下 Canvas 自建的独立窗口里（**全局一只**，窗口里的那只隐藏）。两处共用显示层 `src/runtime/pet-display.ts`（素材、气泡、台词、音效、按压、表情、透明像素判定），只有摆放不同：窗口内是 `pet.ts`，桌面是 `pet-desktop-page.ts` 加主进程的 `pet-desktop.ts`。
+- 住在两处之一：ZCode 主窗口页面里（默认，**每个主窗口一只**），或者桌面模式（`config.pet.desktop`，Windows 和 macOS 上生效）下 Canvas 自建的独立窗口里（**全局一只**，窗口里的那只隐藏）。两处共用显示层 `src/runtime/pet-display.ts`（素材、气泡、台词、音效、按压、表情、透明像素判定），只有摆放不同：窗口内是 `pet.ts`，桌面是 `pet-desktop-page.ts` 加主进程的 `pet-desktop.ts`。
 - 窗口内：和外观浮层一样只挂在主渲染页，DOM 封装在自有的 closed Shadow DOM 里，不查询、不观察宿主 DOM。唯一的全局监听是窗口上的被动 `pointermove`，用来判断指针是否在图片不透明的像素上，从而让透明部分的点击穿透给 ZCode。按下时阻止默认行为，不会抢走输入框焦点。
 - 桌面模式的窗口：
-  - `BaseWindow` 加 `WebContentsView`，不是 `BrowserWindow`，ZCode 按 `BrowserWindow` 挑窗口的逻辑都看不到它（第 3 节）。透明、无边框、不进任务栏、不可聚焦（点她不会把系统焦点交给一个 ZCode 不认识的窗口），置顶用 `"screen-saver"` 级别（其他级别实测不真正置顶）。先显示再加载页面：页面在隐藏的 `BaseWindow` 里开始绘制时永远不上屏（实测）。
+  - `BaseWindow` 加 `WebContentsView`，不是 `BrowserWindow`，ZCode 按 `BrowserWindow` 挑窗口的逻辑都看不到它（第 3 节）。透明、无边框、不进任务栏、不可聚焦（点她不会把系统焦点交给一个 ZCode 不认识的窗口），置顶用 `"screen-saver"` 级别（其他级别实测不真正置顶）。先显示再加载页面：页面在隐藏的 `BaseWindow` 里开始绘制时永远不上屏（实测）。macOS 上窗口类型是 `"panel"`（不激活的面板，出现在每个桌面空间、浮在全屏 app 上面）；不用 `setVisibleOnAllWorkspaces({ visibleOnFullScreen })`，它每次调用都会把整个 app 切成 UI 元素再切回来，ZCode 自己的窗口和 Dock 图标会短暂消失。
   - 生命周期只看 `main.ts` 的 `renderers`（通过 `CHANNEL_GET` 握手和 `senderIsMainWindow` 校验的主窗口页面）：数量归零时在 `destroyed` 回调里同步销毁桌宠，否则 `window-all-closed` 不会触发；数量大于零且桌面模式开着时确保桌宠存在。不用 `browser-window-created` 判断主窗口。握手失效时 `renderers` 为空，桌宠不出现。桌宠窗口的 `close` 永远不阻止；窗口 `closed` 时显式关闭 `WebContentsView` 的 webContents（它不随窗口释放）。显示器、缩放变化时销毁重建。
   - 页面在独立的非持久化会话分区 `zcode-canvas-pet` 里，`contextIsolation`、`sandbox`、无 Node；专用 preload 只暴露桌宠用的通道，主进程按 webContents 身份（不按 URL）认它。它收得到 `CHANNEL_PET` 推送、可以请求 `CHANNEL_PET_GET`，但不在 `renderers` 里：不收 CSS，也不影响生命周期判断。拒绝打开新窗口、拒绝导航。
   - 点击穿透分三态：离得远时完全穿透（不装钩子）；进入狐娘外扩 96px、离开 128px 的范围内时穿透并转发鼠标移动（系统级低层鼠标钩子，一直开着会让别的窗口光标闪烁，所以只在附近开）；页面判定光标在不透明像素或打开的气泡上时可交互。判定只在光标还停在判定时的位置时有效；光标停下而没有收到移动时，主进程 250ms 一次的轮询会请页面判定当前点。拖动期间锁定为可交互。每 5 秒、拖动结束、休眠恢复后重新设置一次原生状态。
   - `setContentProtection(true)`：ZCode 的电脑操作会截屏再按坐标点击，桌宠不能出现在截图里挡住目标、截走点击。代价是用户也截不到她。
   - 拖动用固定尺寸的 `setBounds` 移动窗口（`setPosition` 在小数缩放下每次让窗口长大约 1px）。位置是 UI 偏好，存 Canvas 目录下的 `pet-position.json`（不进 `config.json`，热重载不监听它），记离最近工作区边缘的距离和所在工作区，恢复时限制在工作区内；吸附贴屏幕工作区边缘，靠左时转身。
-  - macOS、Linux 上开关不可用并说明原因：Linux（Wayland）下应用不能自己定位窗口，也不支持“透明处穿透、不透明处可点”；macOS 未验证。只为真机验证，用环境变量 `ZCODE_CANVAS_PET_DESKTOP=force` 启动 ZCode 时这些平台上也启用（面板注明“尚未验证”，`runtime.log` 记一行），不写进配置，Canvas 自己从不设置它，验证步骤见 [mac-test-plan.md](mac-test-plan.md) 的 H 节。
+  - Linux 上开关不可用并说明原因：Wayland 下应用不能自己定位窗口，也不支持“透明处穿透、不透明处可点”。只为真机验证，用环境变量 `ZCODE_CANVAS_PET_DESKTOP=force` 启动 ZCode 时也启用（面板注明“尚未验证”，`runtime.log` 记一行），不写进配置，Canvas 自己从不设置它。macOS 的验证步骤见 [mac-test-plan.md](mac-test-plan.md) 的 H 节。
 - 状态来自两处，都是只读的（第 3 节）。一是 ZCode 的事件日志：主进程里的定时器每 500ms 读一次追加的内容，桌宠关闭时停止；启动时从当天日志的末尾开始，不回放历史；一次积压超过 1MB 时跳过旧的部分。二是 ZCode 渲染层发给主进程的卡片通知：只在被观察的两个通道上包一层监听，原样转交给 ZCode 自己的处理函数，其他通道保持 ZCode 注册的原函数，`removeListener` 不受影响。日志里没有“等待用户”的记录，所以“等你回应”只来自卡片通知，不做推断。
 - 不开端口、不起额外进程（桌面模式的页面进程是 Electron 在 ZCode 进程树里起的渲染进程，见第 6 节）、不写 ZCode 的任何文件、不读对话内容（只用事件名、会话 id、工具调用 id 和卡片 id）。
 - 各会话分别跟踪，按紧急程度合并成一个状态：等你回应 > 出错 > 干活 > 思考 > 完成 > 待机。“完成”和“出错”只看主会话这一轮的结束；手动停止（`turn.failed` 且 `status` 为 `cancelled`）不算出错；子代理运行时只算干活。回合 10 分钟没有任何事件就当作已经结束。思考、干活、待机之间的切换至少保持 1.5 秒，避免闪烁。

@@ -12,15 +12,17 @@ import { decidePointer, NEAR_ENTER, NEAR_EXIT, parsePointerReport, POINTER_TIMIN
 
 const AREA = { x: 0, y: 0, width: 2048, height: 1240 };
 
-test("desktop mode is a Windows-only switch, off by default, and survives the payload round trip", () => {
+test("desktop mode is offered on Windows and macOS, off by default, and survives the payload round trip", () => {
   assert.equal(desktopPetSupported("win32"), true);
-  assert.equal(desktopPetSupported("darwin"), false);
+  assert.equal(desktopPetSupported("darwin"), true);
   assert.equal(desktopPetSupported("linux"), false);
   // Only an explicit test switch turns it on elsewhere; it does nothing where it is supported.
-  assert.equal(desktopPetAvailability("darwin", {}), "unavailable");
-  assert.equal(desktopPetAvailability("darwin", { ZCODE_CANVAS_PET_DESKTOP: "force" }), "forced");
+  assert.equal(desktopPetAvailability("linux", {}), "unavailable");
+  assert.equal(desktopPetAvailability("linux", { ZCODE_CANVAS_PET_DESKTOP: "force" }), "forced");
+  assert.equal(desktopPetAvailability("darwin", {}), "supported");
   assert.equal(desktopPetAvailability("linux", { ZCODE_CANVAS_PET_DESKTOP: "1" }), "unavailable", "only the exact value");
   assert.equal(desktopPetAvailability("win32", { ZCODE_CANVAS_PET_DESKTOP: "force" }), "supported");
+  assert.equal(desktopPetAvailability("darwin", { ZCODE_CANVAS_PET_DESKTOP: "force" }), "supported");
   assert.equal(desktopPetAvailability("win32"), "supported");
   assert.equal(resolvePet({ enabled: true }, true, true).desktop, false, "off unless asked for");
   assert.equal(resolvePet({ enabled: true, desktop: true }, true, true).desktop, true);
@@ -214,12 +216,12 @@ function fakeElectron() {
   return { electron, ipc, screenEvents, moveCursor: (x: number, y: number) => { cursor = { x, y }; } };
 }
 
-function setup() {
+function setup(platform: NodeJS.Platform = "win32") {
   const fake = fakeElectron();
   const home = mkdtempSync(join(tmpdir(), "zc-desktop-pet-"));
   const logged: string[] = [];
   const positionFile = join(home, "pet-position.json");
-  const desktop = createDesktopPet({ electron: fake.electron, page: "C:/runtime/pet-desktop.html", preload: "C:/runtime/pet-desktop-preload.cjs", positionFile, log: (m) => logged.push(m) });
+  const desktop = createDesktopPet({ electron: fake.electron, page: "C:/runtime/pet-desktop.html", preload: "C:/runtime/pet-desktop-preload.cjs", positionFile, log: (m) => logged.push(m), platform });
   return { ...fake, desktop, positionFile, logged };
 }
 
@@ -376,4 +378,22 @@ test("a page that fails to load or a close that throws never reaches ZCode", asy
     FakeContents.failClose = false;
   }
   FakeView.all[1]!.webContents.close();
+});
+
+test("on macOS the window is a non-activating panel, never made visible on all workspaces by hand", () => {
+  const { desktop } = setup("darwin");
+  desktop.sync(on, 1);
+  const [win] = FakeWindow.all;
+  assert.equal(win!.options.type, "panel", "floats over full-screen apps and joins every Space");
+  assert.equal(win!.options.focusable, false);
+  FakeView.all[0]!.webContents.emit("did-finish-load");
+  // setVisibleOnAllWorkspaces({ visibleOnFullScreen }) flips ZCode's process type, hiding its Dock icon.
+  assert.equal(win!.calls.some((call) => call[0] === "setVisibleOnAllWorkspaces"), false);
+  assert.deepEqual(win!.calls.find((call) => call[0] === "setAlwaysOnTop"), ["setAlwaysOnTop", true, "screen-saver"]);
+  desktop.sync(on, 0);
+  assert.equal(win!.destroyed, true, "closing the last ZCode window on macOS still takes her along");
+  const windows = setup("win32");
+  windows.desktop.sync(on, 1);
+  assert.equal("type" in FakeWindow.all[0]!.options, false, "Windows keeps a plain window");
+  windows.desktop.sync(on, 0);
 });

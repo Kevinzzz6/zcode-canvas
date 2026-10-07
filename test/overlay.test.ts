@@ -21,13 +21,12 @@ test("only the main file renderer page gets the injected UI", () => {
   assert.equal(isMainWindowUrl("not a URL"), false);
 });
 
-test("the pet's desktop-mode switch is Windows-only and says why elsewhere", () => {
+test("the pet's desktop-mode switch works on Windows and macOS and says why elsewhere", () => {
   for (const availability of ["unavailable", undefined] as const) {
     const note = petPlacementNote(availability, true);
     assert.equal(note.available, false, String(availability));
-    assert.match(note.hint, /只支持 Windows/);
+    assert.match(note.hint, /只支持 Windows 和 macOS/);
     assert.match(note.hint, /Wayland/);
-    assert.match(note.hint, /macOS 尚未验证/);
   }
   assert.deepEqual(Object.keys(petPlacementNote("supported", false)), ["available", "hint"]);
   assert.equal(petPlacementNote("supported", false).available, true);

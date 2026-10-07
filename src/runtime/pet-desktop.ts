@@ -39,6 +39,7 @@ export interface DesktopPetDeps {
   /** Where the position is kept: Canvas's own directory, never localStorage. */
   positionFile: string;
   log(message: string): void;
+  platform?: NodeJS.Platform;
 }
 
 export const DESKTOP_WINDOW_OPTIONS = {
@@ -67,7 +68,17 @@ interface Shown {
   timers: ReturnType<typeof setInterval>[];
 }
 
-export function createDesktopPet({ electron, page, preload, positionFile, log }: DesktopPetDeps) {
+/**
+ * On macOS the window is a non-activating panel: Electron's "panel" type floats over full-screen
+ * apps and appears on every Space. Not setVisibleOnAllWorkspaces({ visibleOnFullScreen }): that
+ * turns the whole app into a UI element and back, briefly hiding ZCode's own windows and Dock icon
+ * every time it is called.
+ */
+export function desktopWindowOptions(platform: NodeJS.Platform): BaseWindowConstructorOptions {
+  return platform === "darwin" ? { ...DESKTOP_WINDOW_OPTIONS, type: "panel" } : { ...DESKTOP_WINDOW_OPTIONS };
+}
+
+export function createDesktopPet({ electron, page, preload, positionFile, log, platform = process.platform }: DesktopPetDeps) {
   const { BaseWindow: Window, WebContentsView: View, screen } = electron;
   let shown: Shown | null = null;
   let wanted: { scale: number } | null = null;
@@ -123,7 +134,7 @@ export function createDesktopPet({ electron, page, preload, positionFile, log }:
     const area = chooseArea(position, screen.getAllDisplays().map((display) => display.workArea), screen.getPrimaryDisplay().workArea);
     const size = Math.round(petBase(area.width, area.height, scale));
     const bounds = boundsFromPosition(position, area, size);
-    const win = new Window({ ...DESKTOP_WINDOW_OPTIONS, ...bounds });
+    const win = new Window({ ...desktopWindowOptions(platform), ...bounds });
     let contents: WebContents | null = null;
     try {
       // Windows rounds a fresh frameless window up by a few px at fractional scaling; set it exactly.
@@ -165,7 +176,8 @@ export function createDesktopPet({ electron, page, preload, positionFile, log }:
       target.timers.push(poll, heal);
       shown = target;
       // Shown before the page loads: a WebContentsView that starts painting inside a hidden
-      // BaseWindow never reaches the screen (measured on Windows, Electron 41). Until the page
+      // BaseWindow never reaches the screen (measured on Windows, Electron 41; the same order is used
+      // everywhere). Until the page
       // paints, the window is empty, transparent and click-through. Only the "screen-saver" level
       // really keeps it on top; it is set again once the page is there.
       win.showInactive();
