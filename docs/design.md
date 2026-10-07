@@ -120,5 +120,5 @@
 
 ## 7. 验收方式
 
-- **稳定部分：** 单元测试（`npm test`），加上在 `scripts/sandbox.mjs` 隔离沙箱里手动验证。
+- **稳定部分：** 单元测试（`npm test`），加上在隔离沙箱里手动验证：Windows 用 `scripts/sandbox.mjs`，macOS 用 `scripts/sandbox-mac.mjs`。
 - 任何时候都不要在开发者自己正在使用的 ZCode 上做这些验证。

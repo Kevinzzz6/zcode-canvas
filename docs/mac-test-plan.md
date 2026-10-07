@@ -111,7 +111,17 @@ git clone https://github.com/Kevinzzz6/zcode-canvas.git && cd zcode-canvas
 npm install && npm run build && npm link
 ```
 
-然后：
+不想动正在用的 ZCode，就在隔离副本里测（复制一份 ZCode.app，配置、数据和单实例锁都与真机分开，带 `--pet-desktop` 即打开测试开关）：
+
+```bash
+node scripts/sandbox-mac.mjs ../_sandbox --pet-desktop     # 第一次会先复制 ZCode.app
+export SB="$PWD/../_sandbox/home"
+HOME="$SB" ZCODE_CANVAS_HOME="$SB/.zcode-canvas" node dist/cli.js apply --zcode ../_sandbox/ZCode.app
+HOME="$SB" ZCODE_CANVAS_HOME="$SB/.zcode-canvas" node dist/cli.js pet on
+HOME="$SB" ZCODE_CANVAS_HOME="$SB/.zcode-canvas" node dist/cli.js set pet.desktop true
+```
+
+`apply` 后用 `pkill -f "_sandbox/ZCode.app/Contents/MacOS/ZCode"` 结束沙箱副本（按路径匹配，碰不到正在用的 ZCode；别用 Cmd+Q，两个都叫 ZCode，容易退错），再跑一次第一条命令，补丁才生效；之后下面的清单在沙箱副本上过，日志看 `$SB/.zcode-canvas/runtime.log`。在真机上测则继续：
 
 ```bash
 zcode-canvas --version                  # npm 装的应为 0.4.1 或更新；源码装的在发版前仍显示 0.4.0，以下面 runtime.log 那行为准
