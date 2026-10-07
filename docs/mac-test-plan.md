@@ -99,6 +99,9 @@ curl -s http://127.0.0.1:9222/json | head -40
 
 ## H. 桌宠桌面模式（macOS）
 
+> **已执行（2026-10-08）：通过，随 0.5.0 发布。** 隔离副本里自动验证：面板窗口画得出来、`CGWindowLayer` 仍是 1000、
+> 关掉最后一个窗口时她同步销毁、无残留窗口；真机上作为日常使用，桌面空间、全屏 app、调度中心都没有问题，层级保持现状。
+
 桌面模式已对 macOS 开放（`main` 上，下一个版本发布）。窗口在 macOS 上是不激活的面板（Electron 的 `type: "panel"`）：
 出现在每个桌面空间（Space）、浮在全屏 app 上面，不改 ZCode 的进程类型（不用 `setVisibleOnAllWorkspaces`，
 它会让 ZCode 的窗口和 Dock 图标短暂消失）。

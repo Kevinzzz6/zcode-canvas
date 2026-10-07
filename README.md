@@ -324,7 +324,7 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 - 只有她身上不透明的地方能点；周围透明的地方点击直接落到下面的窗口。
 - **截图、录屏和屏幕共享里看不到她。** 这是有意的：ZCode 让 AI 操作电脑时会先截屏再按坐标点击，她出现在截图里可能挡住目标、截走点击。代价是你也截不到她。
 - 多一个页面进程，约 26 MB 内存，动画时约 1% CPU；随最后一个 ZCode 窗口关闭而销毁，不影响 ZCode 退出和更新。
-- Windows 从 0.4.0 起提供，macOS 从下一个版本起提供。Linux 上不提供：Wayland 下应用不能自己摆放窗口，也做不到“透明处穿透、不透明处可点”，开关不可用。
+- Windows 从 0.4.0 起提供，macOS 从 0.5.0 起提供。Linux 上不提供：Wayland 下应用不能自己摆放窗口，也做不到“透明处穿透、不透明处可点”，开关不可用。
 
 状态来自 ZCode 自己写的事件日志 `~/.zcode/cli/log/zcode-<日期>.jsonl`，以及 ZCode 弹出提问或审批卡片时发出的通知：Canvas 在 ZCode 主进程里只读旁听，不开端口，不起额外进程。“等你回应”只对当前打开的会话生效，并且需要开着 ZCode 设置里的“通知”。这些都不是官方接口，ZCode 改版后她可能暂时只会待机，但不会影响 ZCode 本身。
 
