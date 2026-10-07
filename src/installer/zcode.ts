@@ -154,12 +154,17 @@ function linuxZCodeRunning(exe: string): boolean {
 }
 
 /** pgrep -x only proves that *some* ZCode is running — a copy launched straight from a mounted DMG
- * counts too. ps comm reports each candidate's executable path, so only processes belonging to this
- * install report "running", mirroring the per-install checks on Windows and Linux. */
+ * counts too — so each candidate's executable is compared with this install, mirroring the
+ * per-install checks on Windows and Linux. Two macOS specifics:
+ * - pgrep leaves out its own ancestors unless given -a, and run from ZCode's own terminal or by an
+ *   agent inside ZCode, the ZCode main process is one. (On Linux procps, -a means "print the full
+ *   command line"; this path only runs on darwin.)
+ * - `ps -o comm=` reports the full path for ZCode's helpers but only the bare name "ZCode" for the
+ *   Electron main process, however it was launched; the path then comes from lsof. */
 export function macZCodeRunning(exe: string, run: (command: string, args: string[]) => string = runCapture): boolean {
   let pids: string;
   try {
-    pids = run("pgrep", ["-x", basename(exe)]);
+    pids = run("pgrep", ["-a", "-x", basename(exe)]);
   } catch {
     return false; // pgrep exits nonzero when nothing matches
   }
@@ -171,13 +176,23 @@ export function macZCodeRunning(exe: string, run: (command: string, args: string
   }
   for (const pid of pids.trim().split(/\s+/).filter(Boolean)) {
     try {
-      const comm = run("ps", ["-o", "comm=", "-p", pid]).trim();
-      if (comm === exe || comm === canonical) return true;
+      const path = macExecutablePath(pid, run);
+      if (path === exe || path === canonical) return true;
     } catch {
-      continue; // the process may have exited between pgrep and ps
+      continue; // the process may have exited between pgrep and ps/lsof
     }
   }
   return false;
+}
+
+/** The executable of a process: its command name when that is a path, else its first text file
+ *  (`-a` makes lsof AND the pid and the txt selection; the executable is listed before the
+ *  libraries it mapped). */
+function macExecutablePath(pid: string, run: (command: string, args: string[]) => string): string {
+  const comm = run("ps", ["-o", "comm=", "-p", pid]).trim();
+  if (comm.startsWith("/")) return comm;
+  const listing = run("lsof", ["-w", "-a", "-p", pid, "-d", "txt", "-Fn"]);
+  return listing.split("\n").find((line) => line.startsWith("n"))?.slice(1).trim() ?? comm;
 }
 
 function runCapture(command: string, args: string[]): string {
