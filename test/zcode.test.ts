@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { makeArchive } from "./make-archive.ts";
 import {
   applyPatch,
   deployRuntime,
   exeName,
+  installationAt,
   macZCodeRunning,
   removePatch,
   replaceDirectory,
@@ -17,21 +18,35 @@ import {
   type Installation,
 } from "../src/installer/zcode.ts";
 
-/** A fake install dir with a real (minimal) app.asar, laid out per the current platform. */
+/**
+ * A fake install with a real (minimal) app.asar in the layout installationAt resolves on this
+ * platform (a ZCode.app bundle on darwin), so code that looks the install up again by its dir —
+ * the pending swap helper — finds it everywhere.
+ */
 function fakeInstall(): Installation {
-  const dir = mkdtempSync(join(tmpdir(), "zc-install-"));
-  const resources = join(dir, "resources");
+  const root = mkdtempSync(join(tmpdir(), "zc-install-"));
+  const mac = process.platform === "darwin";
+  const dir = mac ? join(root, "ZCode.app") : root;
+  const exe = mac ? join(dir, "Contents", "MacOS", "ZCode") : join(dir, exeName(process.platform));
+  const resources = mac ? join(dir, "Contents", "Resources") : join(dir, "resources");
+  mkdirSync(dirname(exe), { recursive: true });
   mkdirSync(resources, { recursive: true });
-  writeFileSync(join(dir, exeName(process.platform)), "");
-  return { dir, exe: join(dir, exeName(process.platform)), asar: makeArchive(resources) };
+  writeFileSync(exe, "");
+  makeArchive(resources);
+  const install = installationAt(dir);
+  assert.ok(install, "the fixture matches the platform's install layout");
+  return install;
 }
+
+/** Stands in for codesign: a temp dir is no bundle macOS would sign. */
+const resigned = () => null;
 
 test("apply patches the archive, then reports it unchanged until the format or bootstrap moves", () => {
   const install = fakeInstall();
-  assert.equal(applyPatch(install, "0.0.0-test", import.meta.filename), "replaced");
-  assert.equal(applyPatch(install, "0.0.0-test", import.meta.filename), "unchanged");
+  assert.equal(applyPatch(install, "0.0.0-test", import.meta.filename, resigned), "replaced");
+  assert.equal(applyPatch(install, "0.0.0-test", import.meta.filename, resigned), "unchanged");
   // Canvas version bumps alone do not rewrite the archive; only format/bootstrap changes do.
-  assert.equal(applyPatch(install, "9.9.9-other", import.meta.filename), "unchanged");
+  assert.equal(applyPatch(install, "9.9.9-other", import.meta.filename, resigned), "unchanged");
 });
 
 test("a failed re-sign after the swap throws, but the patch itself stays applied", () => {
@@ -47,8 +62,8 @@ test("a failed re-sign after the swap throws, but the patch itself stays applied
     },
   );
   // The rename happened before the resign: the archive on disk is patched and clean to restore.
-  assert.equal(removePatch(install, import.meta.filename, () => null), "replaced");
-  assert.equal(applyPatch(install, "0.0.0-test", import.meta.filename, () => null), "replaced");
+  assert.equal(removePatch(install, import.meta.filename, resigned), "replaced");
+  assert.equal(applyPatch(install, "0.0.0-test", import.meta.filename, resigned), "replaced");
 });
 
 function parkPending(install: Installation, id: string): void {
@@ -160,6 +175,34 @@ test("macZCodeRunning only counts processes whose executable is this install", (
     return args[args.length - 1] === "501" ? `${other}\n` : `${exe}\n`;
   };
   assert.equal(macZCodeRunning(exe, run), true);
+});
+
+test("macZCodeRunning sees a ZCode it runs inside of, and the main process's bare command name", () => {
+  const exe = "/Applications/ZCode.app/Contents/MacOS/ZCode";
+  const calls: string[] = [];
+  // As measured on macOS: from ZCode's own terminal, plain pgrep hides ZCode (an ancestor), and
+  // ps gives the Electron main process as "ZCode"; lsof lists its executable first among txt files.
+  const run = (command: string, args: string[]) => {
+    calls.push(`${command} ${args.join(" ")}`);
+    if (command === "pgrep") {
+      if (!args.includes("-a")) throw new Error("exit 1");
+      return "86255\n";
+    }
+    if (command === "ps") return "ZCode\n";
+    if (command === "lsof") return `p86255\nftxt\nn${exe}\nftxt\nn/usr/lib/dyld\n`;
+    throw new Error(`unexpected ${command}`);
+  };
+  assert.equal(macZCodeRunning(exe, run), true);
+  assert.deepEqual(calls, ["pgrep -a -x ZCode", "ps -o comm= -p 86255", "lsof -w -a -p 86255 -d txt -Fn"]);
+  // A bare-named main process from another copy (a mounted DMG) still does not count.
+  const dmg = (command: string, args: string[]) => (command === "lsof" ? "p86255\nftxt\nn/Volumes/ZCode/ZCode.app/Contents/MacOS/ZCode\n" : run(command, args));
+  assert.equal(macZCodeRunning(exe, dmg), false);
+  // lsof failing (the process just exited) is no evidence either way.
+  const gone = (command: string, args: string[]) => {
+    if (command === "lsof") throw new Error("lsof: no process");
+    return run(command, args);
+  };
+  assert.equal(macZCodeRunning(exe, gone), false);
 });
 
 test("macZCodeRunning reports false when every same-named process is another install", () => {
