@@ -3,12 +3,14 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { buildCss, isSafeCssValue } from "../src/shared/css.ts";
+import { buildCss, isSafeCssValue, UPGRADE_SURFACE } from "../src/shared/css.ts";
 import { BLUR_REGIONS, BLURRED_SURFACES, mainCappedByFrame, regionAlphas, regionHighlightCss, type GlassRegion, type ResolvedRegion } from "../src/shared/glass.ts";
 import { resolveLook, type ThemeEntry } from "../src/shared/look.ts";
 import { contrastRatio, extractColors, filteredBackdrop, generatePalette, PALETTE_VARIANTS } from "../src/shared/palette.ts";
 
 const theme = (manifest: ThemeEntry["manifest"]): ThemeEntry => ({ id: "t", dir: "/themes/t", builtin: true, manifest });
+/** A blurred surface selector as the sheet writes it: the upgrade overlay is exempt from glass. */
+const excluded = (selector: string) => `${selector}:not(${UPGRADE_SURFACE}, ${UPGRADE_SURFACE} *)`;
 const schema = JSON.parse(readFileSync(fileURLToPath(new URL("../schema/theme.schema.json", import.meta.url)), "utf8")) as object;
 
 /** Hue in degrees of a #rrggbb color, via the CSS hsl model (enough to tell hues apart). */
@@ -142,14 +144,14 @@ test("per-region glass writes its own alphas and blur, and untouched regions kee
   assert.match(css, /--color-background: color-mix\(in srgb, var\(--zc-src-background\) 36\.7%, transparent\)/);
   assert.match(css, /--color-card: color-mix\(in srgb, var\(--zc-src-card\) 75%, transparent\)/);
   assert.doesNotMatch(css, /--color-input:|--color-input-focused:/, "an opaque region is left alone");
-  assert.match(css, /#root \.bg-background,\n#root \.bg-panel \{\n {2}backdrop-filter: blur\(12px\)/);
-  assert.match(css, /#root \.bg-card \{\n {2}backdrop-filter: blur\(30px\)/);
+  assert.ok(css.includes(`${excluded("#root .bg-background")},\n${excluded("#root .bg-panel")} {\n  backdrop-filter: blur(12px)`));
+  assert.ok(css.includes(`${excluded("#root .bg-card")} {\n  backdrop-filter: blur(30px)`));
   assert.doesNotMatch(css, /\.bg-input/);
 
   const onlyMain = buildCss(resolveLook({ glass: { regions: { main: { opacity: 0.6, blur: 8 } } } }, null, "/home")).css;
   assert.doesNotMatch(onlyMain, /--color-background-win-alt: color-mix/, "global opacity 1 keeps the frame opaque");
   assert.match(onlyMain, /--color-background: color-mix\(in srgb, var\(--zc-src-background\) 60%, transparent\)/);
-  assert.match(onlyMain, /#root \.bg-background,\n#root \.bg-panel \{\n {2}backdrop-filter: blur\(8px\)/);
+  assert.ok(onlyMain.includes(`${excluded("#root .bg-background")},\n${excluded("#root .bg-panel")} {\n  backdrop-filter: blur(8px)`));
 });
 
 test("a region highlight outlines exactly the surfaces its blur is written for", () => {
@@ -159,9 +161,10 @@ test("a region highlight outlines exactly the surfaces its blur is written for",
   for (const region of BLUR_REGIONS) {
     const rule = regionHighlightCss(region);
     assert.deepEqual(selectorsOf(rule), BLURRED_SURFACES[region].map((s) => `#root ${s}`), region);
-    // The same selectors the generated sheet blurs, so the two cannot drift apart.
+    // The same surfaces the generated sheet blurs — each minus the upgrade overlay — so the two
+    // cannot drift apart.
     const { css } = buildCss(resolveLook({ glass: { opacity: 1, blur: 0, regions: { [region]: { opacity: 0.5, blur: 7 } } } }, null, "/home"));
-    assert.ok(css.includes(`${selectorsOf(rule).join(",\n")} {\n  backdrop-filter: blur(7px)`), region);
+    assert.ok(css.includes(`${BLURRED_SURFACES[region].map((s) => excluded(`#root ${s}`)).join(",\n")} {\n  backdrop-filter: blur(7px)`), region);
   }
   for (const region of ["frame", ...BLUR_REGIONS] as const) {
     const rule = regionHighlightCss(region);

@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, type CssValueKind } from "../src/shared/css.ts";
+import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, UPGRADE_SURFACE, type CssValueKind } from "../src/shared/css.ts";
 import { checkManifest, listThemes, loadLook, readConfig, resolveLook, type StartupAnimation, type ThemeEntry } from "../src/shared/look.ts";
 import { contrastRatio } from "../src/shared/palette.ts";
 
@@ -90,6 +90,20 @@ test("glass makes surfaces translucent on #root without self-referencing tokens"
   // frame 35% + content x% must add up to the requested 50%
   assert.match(css, /--color-background: color-mix\(in srgb, var\(--zc-src-background\) 23\.1%, transparent\)/);
   assert.match(css, /backdrop-filter: blur\(12px\)/);
+});
+
+test("glass keeps the coding-plan upgrade overlay opaque over the conversation", () => {
+  const { css } = buildCss(resolveLook({ glass: { opacity: 0.5, blur: 12 } }, null, "/home"));
+  // The purchase page is overlaid from inside #root, so it inherits the glass tokens unless the
+  // sheet hands the captured colors back to its subtree; the conversation must not show through.
+  // (SURFACES order puts background-win-alt first; plain var() restoration only appears in this rule.)
+  assert.ok(css.includes(`${UPGRADE_SURFACE} {\n  --color-background-win-alt: var(--zc-src-background-win-alt);`));
+  assert.ok(css.includes(`--color-background: var(--zc-src-background);`));
+  assert.ok(css.includes(`--color-card: var(--zc-src-card);`));
+  // Neither the overlay nor its <webview> (painted with .bg-background) takes a backdrop-filter.
+  assert.ok(css.includes(`#root .bg-background:not(${UPGRADE_SURFACE}, ${UPGRADE_SURFACE} *)`));
+  // Without glass nothing is restyled, so the overlay needs no restoring rule either.
+  assert.doesNotMatch(buildCss(resolveLook({}, null, "/home")).css, /coding-plan-upgrade-surface/);
 });
 
 test("unsafe values are dropped with a warning", () => {

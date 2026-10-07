@@ -14,7 +14,10 @@ import { linearLuminance, oklabToLinear, toLinear } from "./palette.ts";
 //    once `body.zcode-startup-ready` is set. ZCode sets it when React has rendered and the logo
 //    shell's animationend has come, which it only listens for once its bundle runs, with a 1s
 //    fallback; under reduced motion it shows the shell still and waits for React alone.
-// Popovers, menus and dialogs portal to <body>, outside #root, so they keep opaque colors.
+// Popovers, menus and dialogs portal to <body>, outside #root, so they keep opaque colors. The one
+// exception is the coding-plan purchase webview (`section[data-testid="coding-plan-upgrade-surface"]`,
+// settings/CodingPlanEmbeddedWebviewDialog.tsx): a full-screen overlay rendered inline inside #root,
+// so the glass sheet restores its opaque colors explicitly (see UPGRADE_SURFACE below).
 // Selectors carry an id so they outrank ZCode's own rules regardless of sheet order.
 
 /** The surface tokens made translucent, by the region that paints them (see shared/glass.ts).
@@ -37,6 +40,12 @@ const SURFACES: ReadonlyArray<readonly [token: string, region: GlassRegion]> = [
 
 /** Color token names: "sidebar" or "--color-sidebar". Mirrors colorTokens in theme.schema.json. */
 const COLOR_TOKEN = /^(--color-)?[a-z0-9][a-z0-9-]*$/;
+
+/** The coding-plan purchase page: the only full-screen surface ZCode overlays from inside #root
+ *  instead of portaling to <body>. Left alone it would inherit the glass tokens and show the
+ *  conversation through the purchase page (and put a backdrop-filter under its <webview>), so the
+ *  sheet keeps it opaque and unblurred like every portaled dialog. */
+export const UPGRADE_SURFACE = 'section[data-testid="coding-plan-upgrade-surface"]';
 
 /** The grammar of a value, by where it is used. "image" adds gradients to "color", "vars" is the
  *  escape hatch and may also quote font stacks and reference other properties. */
@@ -359,6 +368,11 @@ export function buildCss(look: ResolvedLook): CssResult {
         ),
       ),
     );
+    // The captured values return on the purchase page's subtree, which inherits them instead of
+    // #root's translucent ones.
+    rules.push(
+      block(UPGRADE_SURFACE, translucent.map(([token]) => `--color-${token}: var(--zc-src-${token})`)),
+    );
     // Regions sharing a radius share one rule, so the untuned case stays a single declaration.
     const byBlur = new Map<number, string[]>();
     for (const region of BLUR_REGIONS) {
@@ -367,7 +381,10 @@ export function buildCss(look: ResolvedLook): CssResult {
       byBlur.set(blur, [...(byBlur.get(blur) ?? []), ...BLURRED_SURFACES[region]]);
     }
     for (const [blur, selectors] of byBlur) {
-      rules.push(block(selectors.map((s) => `#root ${s}`).join(",\n"), [`backdrop-filter: blur(${blur}px)`]));
+      // The upgrade overlay and everything in it (its <webview> paints with .bg-background too)
+      // stay off the backdrop-filter, which an opaque surface would only hide.
+      const blurred = selectors.map((s) => `#root ${s}:not(${UPGRADE_SURFACE}, ${UPGRADE_SURFACE} *)`);
+      rules.push(block(blurred.join(",\n"), [`backdrop-filter: blur(${blur}px)`]));
     }
   }
 
