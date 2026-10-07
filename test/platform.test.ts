@@ -68,7 +68,7 @@ test("canvas home follows SUDO_USER so sudo apply still installs for the real us
   const alice = join(process.platform === "darwin" ? "/Users/alice" : "/home/alice", ".zcode-canvas");
   assert.equal(canvasHome({ ZCODE_CANVAS_HOME: "/custom" }, 0), "/custom");
   assert.equal(canvasHome({ SUDO_USER: "alice" }, 0), alice, "running as root under sudo");
-  assert.equal(canvasHome({ SUDO_USER: "alice" }, undefined), alice, "no uids at all (Windows)");
+  assert.equal(canvasHome({ SUDO_USER: "alice" }, null), alice, "no uids at all (Windows)");
   assert.equal(canvasHome({ SUDO_USER: "alice" }, 501), own, "a non-root process with a leftover SUDO_USER keeps its own home");
   assert.equal(canvasHome({ SUDO_USER: "root" }, 0), own);
   assert.equal(canvasHome({}, 0), own);
