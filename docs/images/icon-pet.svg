@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <title>桌宠</title>
+  <defs><linearGradient id="ink" x1="8" y1="8" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#BA91AE"/><stop offset=".5" stop-color="#83BCAF"/><stop offset="1" stop-color="#B6AA79"/></linearGradient></defs>
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#ink)" fill-opacity=".06" stroke="url(#ink)" stroke-opacity=".22"/>
+  <g stroke="url(#ink)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 23L11 12L19.5 16.5Q24 15 28.5 16.5L37 12L35 23Q36.5 31 30 34.5Q24 37.5 18 34.5Q11.5 31 13 23Z" fill="url(#ink)" fill-opacity=".1"/>
+    <path d="M17.5 25.5Q19.5 27.5 21.5 25.5M26.5 25.5Q28.5 27.5 30.5 25.5M23 30L24 31L25 30"/>
+  </g>
+</svg>

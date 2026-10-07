@@ -4,7 +4,7 @@
 
 **给官方版 ZCode 换一身皮肤。**
 
-主题 · 壁纸 · 毛玻璃 · 启动画面<br>
+主题 · 壁纸 · 毛玻璃 · 启动画面 · 桌宠<br>
 不用编译，不用维护 fork，随时逐字节还原。
 
 [![ZCode 3.14.4](https://img.shields.io/badge/ZCode-3.14.4_已验证-111?style=flat-square)](#平台支持)
@@ -12,9 +12,9 @@
 [![platform](https://img.shields.io/badge/platform-Windows_%7C_macOS_%7C_Linux-111?style=flat-square)](#平台支持)
 [![license](https://img.shields.io/badge/license-MIT-111?style=flat-square)](LICENSE)
 
-[快速开始](#快速开始) · [主题](#主题) · [外观中心](#外观中心) · [文档](docs/theme-format.md)
+[快速开始](#快速开始) · [主题](#主题) · [外观中心](#外观中心) · [桌宠](#桌宠) · [文档](docs/theme-format.md)
 
-<img src="docs/images/hero.webp" alt="同一个 ZCode 窗口的三种样子：樱、终末地 · 谷地黄、尼尔 · 寄叶" width="100%">
+<img src="docs/images/hero.webp" alt="同一个 ZCode 窗口的三种样子：樱、终末地 · 谷地黄、尼尔 · 寄叶沿斜线拼在一起，随后依次扫过、铺满整个窗口" width="100%">
 
 </div>
 
@@ -31,11 +31,14 @@
 <td valign="top"><img src="docs/images/icon-splash.svg" width="28" alt=""> <b>启动画面</b><br>背景、logo 和动画都能换，从第一帧开始就是你的主题。</td>
 <td valign="top"><img src="docs/images/icon-live.svg" width="28" alt=""> <b>实时生效</b><br>改完约 1 秒刷新，不用重启 ZCode。</td>
 </tr>
+<tr>
+<td colspan="3" valign="top"><img src="docs/images/icon-pet.svg" width="28" alt=""> <b>桌宠</b> <sub>0.3.0 新增</sub><br>窗口角落住着一只狐娘，AI 在思考、干活、等你回应还是已经完成，看她一眼就知道。</td>
+</tr>
 </table>
 
-<img src="docs/images/demo.webp" alt="在外观中心里依次切换终末地 · 武陵青、樱主题，选一张壁纸，再拖动透明度和模糊滑杆，界面当场刷新" width="100%">
+<img src="docs/images/demo.webp" alt="在外观中心里依次切换终末地 · 武陵青、樱主题，选一张壁纸，拖动透明度和模糊滑杆；再切到高级模式拖动“输入框”的透明度，ZCode 的输入框描上一圈强调色边框，界面当场刷新" width="100%">
 
-<p align="center"><sub>换主题、换壁纸、拖滑杆，界面当场刷新</sub></p>
+<p align="center"><sub>换主题、换壁纸、拖滑杆，界面当场刷新；调分区玻璃时，被调的区域会描上边框</sub></p>
 
 ### 放心用
 
@@ -174,7 +177,7 @@ npm install && npm run build && npm link
 </tr>
 </table>
 
-<img src="docs/images/splash-yorha.webp" alt="尼尔 · 寄叶的启动画面：黑底细网格上的寄叶徽标、YoRHa 字标和 For the Glory of Mankind" width="100%">
+<img src="docs/images/splash-yorha.webp" alt="尼尔 · 寄叶的启动画面：黑底细网格上淡入寄叶徽标、YoRHa 字标和 For the Glory of Mankind，随后溶进沙色界面" width="100%">
 
 <p align="center"><sub>启动画面还原游戏的开机画面，淡入后才是沙色界面。非官方同人作品，寄叶徽标的权利归 SQUARE ENIX，不属于 MIT 许可，见 <a href="NOTICE.md">NOTICE.md</a>。</sub></p>
 
@@ -287,21 +290,31 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 
 导入的图片存在 `~/.zcode-canvas/imports/wallpaper/`，也会出现在外观中心的“我的壁纸”里。
 
+<img src="docs/images/canvas-divider.svg" alt="" width="100%">
+
+06 / COMPANION
+
 ## 桌宠
 
 一只住在 ZCode 窗口角落的狐娘，看一眼就知道 AI 在干什么：
+
+<p align="center"><img src="docs/images/pet.webp" alt="ZCode 窗口右下角的狐娘：AI 思考时头顶冒出 ···，等你批准时跳起来说“主人，该你了！”并冒出 !，完成后蹦一下说“做完了！夸我！”并冒出星星" width="360"></p>
+
+<p align="center"><sub>思考、干活、等你批准、完成，各有各的样子</sub></p>
 
 | AI 在…… | 她会…… |
 |---|---|
 | 思考 | 歪头，头顶冒出 `···` |
 | 跑命令、改文件 | 小幅颠动 |
-| 等你回答问题或批准操作 | 跳起来，冒出 `!`，说一句“主人，该你了！” |
-| 完成这一轮 | 蹦一下，冒出星星，说“搞定啦！” |
+| 等你回答问题或批准操作 | 跳起来，说一句“主人，该你了！”之类的话，再冒出 `!` |
+| 完成这一轮 | 蹦一下，说一句“做完了！夸我！”之类的话，再冒出星星 |
 | 这一轮失败了 | 抖一下然后蔫掉 |
 
 自己手动停掉的回合不算出错；子代理跑完也不会喊“完成”，只有主会话这一轮结束时才会。同时开着几个会话时，她显示最需要你关注的那一个。
 
 桌宠默认关闭，在外观中心的“桌宠”里打开，或者运行 `zcode-canvas pet on`。点她会 Q 弹一下、发出声音、说一句随机台词；拖到窗口边缘附近会吸附，靠左时自动转身。图片透明的地方不挡鼠标。大小、音效、音量和“说话”开关都在外观中心里。
+
+从 0.2 升级上来的，记得重新 `zcode-canvas apply` 一次并重启 ZCode：桌宠的图片和音效随运行时一起部署，不重新 `apply` 的话，打开桌宠也看不到她。
 
 状态来自 ZCode 自己写的事件日志 `~/.zcode/cli/log/zcode-<日期>.jsonl`，以及 ZCode 弹出提问或审批卡片时发出的通知：Canvas 在 ZCode 主进程里只读旁听，不开端口，不起额外进程。“等你回应”只对当前打开的会话生效，并且需要开着 ZCode 设置里的“通知”。这些都不是官方接口，ZCode 改版后她可能暂时只会待机，但不会影响 ZCode 本身。
 
@@ -309,7 +322,7 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 
 <img src="docs/images/canvas-divider.svg" alt="" width="100%">
 
-06 / REFERENCE
+07 / REFERENCE
 
 ## 命令行
 
@@ -326,7 +339,7 @@ zcode-canvas unset wallpaper                      # 删除一项或一组设置�
 zcode-canvas new <id>                             # 把当前外观存成新主题
 zcode-canvas open                                 # 打开外观中心；ZCode 没运行时打开配置目录
 zcode-canvas pet on                               # 打开桌宠（off 关闭）
-zcode-canvas set pet.scale 1                      # 桌宠大小 0.6~2.5，也可设 pet.volume / pet.sound / pet.bubble
+zcode-canvas set pet.scale 1                      # 桌宠大小 0.6~2.5（默认 1.5），也可设 pet.volume / pet.sound / pet.bubble
 zcode-canvas help                                 # 所有命令和可设置的键
 ```
 
@@ -342,6 +355,8 @@ zcode-canvas help                                 # 所有命令和可设置的�
 npm install -g zcode-canvas@latest
 zcode-canvas apply             # 换上新的运行时，重启 ZCode 后生效
 ```
+
+每个版本改了什么，见 [Releases](https://github.com/Kevinzzz6/zcode-canvas/releases)。
 
 卸载：
 
