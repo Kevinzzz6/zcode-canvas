@@ -97,6 +97,97 @@ curl -s http://127.0.0.1:9222/json | head -40
 若 ZCode 有新版本：更新后确认 ①官方签名恢复（codesign -dv）②补丁丢失
 ③`zcode-canvas status` 如实报告。
 
+## H. 桌宠桌面模式（0.4.0，测试开关）
+
+桌面模式只在 Windows 上开放；macOS 上要用测试开关 `ZCODE_CANVAS_PET_DESKTOP=force` 启动 ZCode 才能打开。
+目的：判断 macOS 能不能开放桌面模式，以及开放前还要补什么。约 30 分钟。
+
+### 准备
+
+测试开关从 0.4.1 起才有（0.4.0 里没有）。0.4.1 发布前从源码装：
+
+```bash
+git clone https://github.com/Kevinzzz6/zcode-canvas.git && cd zcode-canvas
+npm install && npm run build && npm link
+```
+
+然后：
+
+```bash
+zcode-canvas --version                  # npm 装的应为 0.4.1 或更新；源码装的在发版前仍显示 0.4.0，以下面 runtime.log 那行为准
+zcode-canvas apply
+zcode-canvas pet on
+zcode-canvas set pet.desktop true
+```
+
+**先 Cmd+Q 彻底退出 ZCode**（单实例锁：还开着时，新启动的实例会直接退出），再从终端带开关启动——
+从 Dock 或 Spotlight 启动拿不到这个环境变量：
+
+```bash
+ZCODE_CANVAS_PET_DESKTOP=force /Applications/ZCode.app/Contents/MacOS/ZCode
+```
+
+确认开关生效：`grep "desktop pet" ~/.zcode-canvas/runtime.log` 应看到
+`desktop pet forced on by ZCODE_CANVAS_PET_DESKTOP=force; untested on darwin`。外观中心“桌宠”里的
+“桌面模式”可以点，下面注明“测试开关已打开……尚未验证”。
+
+### 不带开关时（先测这组，确认默认行为）
+
+从 Dock 正常启动：
+
+- [ ] “桌面模式”两个按钮是灰的，提示“只支持 Windows……macOS 尚未验证”
+- [ ] 即使 `pet.desktop` 是 true，狐娘仍在窗口里，没有独立窗口
+- [ ] 窗口内桌宠：拖动吸附、靠左转身、点击 Q 弹和气泡、透明处点击落到 ZCode、重启后位置还在
+- [ ] Cmd+= 放大 ZCode 后拖动，狐娘仍紧跟鼠标
+
+### 带开关时：显示与位置
+
+- [ ] 窗口里的狐娘消失，屏幕右下角出现一只（**真的画出来了**，不是空白：Windows 上实测过隐藏窗口里开始绘制的页面不上屏，所以改成了先显示再加载）
+- [ ] 背景完全透明，没有阴影、边框或白底
+- [ ] 置顶：盖在其他 app 窗口上面；也看一下她和菜单栏、Dock 的上下关系
+- [ ] Retina 屏下清晰、大小正常；外接显示器（如有）上拖过去再拖回来，位置正确
+- [ ] 拖到屏幕边缘附近会吸附，靠左边缘时转身；松手后 `cat ~/.zcode-canvas/pet-position.json` 记的是离边缘的距离
+- [ ] 退出重开后回到原位
+
+### 点击与焦点
+
+- [ ] 只有她身上不透明的地方能点：点她会 Q 弹、冒气泡；点她周围透明的地方，点击落到下面的窗口
+- [ ] 光标停在她身上不动时，点击仍然点中她（不是穿过去）
+- [ ] 在别的 app（比如访达）里点她或拖她：焦点留在原 app，ZCode 不会被激活到前台
+- [ ] 气泡打开时点气泡会关掉它
+- [ ] 活动监视器里看 CPU：光标在她附近来回移动时没有明显升高
+
+### 截图
+
+- [ ] Cmd+Shift+3 / Cmd+Shift+4 截屏，截图里**没有**她（setContentProtection）
+- [ ] 录屏（Cmd+Shift+5）同样看不到她
+
+### 最小化、隐藏和“等你回应”
+
+- [ ] ZCode 窗口最小化到 Dock（Cmd+M）：她还在
+- [ ] Cmd+H 隐藏 ZCode：她还在
+- [ ] 窗口最小化时让 AI 跑一个需要批准的命令：她跳起来、冒 `!`（ZCode 设置里的“通知”要开着）
+- [ ] 切到别的桌面空间（Space）或全屏 app：**预期看不到她**（代码没有设 `setVisibleOnAllWorkspaces`）——记下实际表现，这是开放前最可能要补的一条
+
+### 关窗、重开与退出（最重要）
+
+macOS 关掉最后一个窗口时 app 不退出，这里和 Windows 完全不同：
+
+- [ ] 关掉 ZCode 的窗口（红色按钮 / Cmd+W）：她**立即消失**，不能剩她一只在屏幕上
+- [ ] 点 Dock 图标重开窗口：她回来
+- [ ] Cmd+Q：ZCode 立即退出，没有卡住，活动监视器里没有残留的 ZCode 进程
+- [ ] 从 Dock 右键“退出”：同上
+- [ ] 打开两个 ZCode 窗口（如支持）：只有一只狐娘；关掉其中一个她还在，全部关掉她消失
+
+### 收尾
+
+```bash
+zcode-canvas unset pet.desktop      # 或在外观中心切回“关”
+```
+
+之后从 Dock 正常启动即可回到默认（不带开关就不会启用）。把每项结果和 `~/.zcode-canvas/runtime.log` 里
+`desktop pet` 相关的行发回来；看不到她、点不中、关不掉这三类问题请附截图以外的描述（截图里本来就没有她）。
+
 ## 结果 → 决策
 
 | 结果 | 动作 |
