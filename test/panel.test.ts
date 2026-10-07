@@ -654,9 +654,27 @@ test("a channel that cannot be registered is logged and skipped; the rest still 
   assert.equal(readConfig(home).theme, "mine");
 });
 
-test("appearance IPC is restricted to the top-level main window; no standalone panel is created", () => {
-  const source = readFileSync(fileURLToPath(new URL("../src/runtime/main.ts", import.meta.url)), "utf8");
+test("appearance IPC is restricted to the top-level main window; no window is created except the desktop pet's", () => {
+  const read = (file: string) => readFileSync(fileURLToPath(new URL(`../src/runtime/${file}`, import.meta.url)), "utf8");
+  const source = read("main.ts");
   assert.match(source, /const isPanelSender = \(event: unknown\): boolean => senderIsMainWindow/);
   assert.match(source, /event\.senderFrame === event\.sender\.mainFrame && isMainWindowUrl/);
-  assert.doesNotMatch(source, /new BrowserWindow\(/);
+  // The one window Canvas makes is desktop mode's, and it must be a BaseWindow: ZCode picks windows
+  // from BrowserWindow.getAllWindows() and listens to browser-window-created, which never see it.
+  const runtime = readdirSync(fileURLToPath(new URL("../src/runtime/", import.meta.url))).filter((file) => file.endsWith(".ts"));
+  for (const file of runtime) assert.doesNotMatch(read(file), /new\s+(BrowserWindow|electron\.BrowserWindow)\s*\(|new\s+BaseWindow\s*\(/, `${file} creates a window`);
+  const owners = runtime.filter((file) => /new\s+Window\s*\(/.test(read(file)));
+  assert.deepEqual(owners, ["pet-desktop.ts"]);
+  assert.match(read("pet-desktop.ts"), /BaseWindow: Window/);
+  assert.match(source, /electron: \{ BaseWindow, WebContentsView, screen, ipcMain, powerMonitor \}/);
+});
+
+test("the desktop pet shares the pet channels without becoming one of the styled main pages", () => {
+  const source = readFileSync(fileURLToPath(new URL("../src/runtime/main.ts", import.meta.url)), "utf8");
+  // Pushes go to the pet page too; CSS, panel refreshes and the lifecycle count stay with renderers.
+  assert.match(source, /desktopPage \? \[\.\.\.renderers, desktopPage\] : renderers/);
+  assert.doesNotMatch(source, /renderers\.add\(desktop/);
+  assert.match(source, /!senderIsMainWindow\(event as unknown as IpcMainEvent\) && !desktop\?\.isPage\(event\.sender\)/);
+  // Leaving with the last main page, synchronously, before ZCode's window-all-closed check.
+  assert.match(source, /contents\.once\("destroyed", \(\) => \{ renderers\.delete\(contents\); syncDesktopPet\(\); \}\)/);
 });

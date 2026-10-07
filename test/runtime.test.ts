@@ -29,8 +29,10 @@ test("watchHome debounces edits into one reload and skips the runtime's own log"
     writeFileSync(join(home, "config.json"), "{}");
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.deepEqual(events.filter((e) => e === "change"), ["change"]);
-    // The runtime's own log must not trigger a reload.
+    // The runtime's own log must not trigger a reload, nor the desktop pet saving where she was dropped.
     writeFileSync(join(home, "runtime.log"), "noise");
+    writeFileSync(join(home, "pet-position.json.tmp-1"), "{}");
+    writeFileSync(join(home, "pet-position.json"), "{}");
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.deepEqual(events.filter((e) => e === "change"), ["change"]);
   } finally {

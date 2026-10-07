@@ -1,16 +1,17 @@
 // Runs inside ZCode's Electron main process, loaded by the bootstrap before ZCode's own entry.
 // Anything thrown here must never reach ZCode: every entry point is guarded.
-import { app, BrowserWindow, dialog, ipcMain, Menu, MenuItem, session, shell, Tray, type IpcMainEvent, type IpcMainInvokeEvent, type OpenDialogOptions, type WebContents } from "electron";
+import { app, BaseWindow, BrowserWindow, dialog, ipcMain, Menu, MenuItem, powerMonitor, screen, session, shell, Tray, WebContentsView, type IpcMainEvent, type IpcMainInvokeEvent, type OpenDialogOptions, type WebContents } from "electron";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
-import { resolvePet, type PetAssets, type ResolvedPet } from "../shared/pet.ts";
+import { desktopPetSupported, resolvePet, type PetAssets, type ResolvedPet } from "../shared/pet.ts";
 import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, CHANNEL_PET, CHANNEL_PET_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION } from "../shared/protocol.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
 import { zcodeLogDir } from "./pet-log.ts";
+import { createDesktopPet } from "./pet-desktop.ts";
 import { createPetService } from "./pet-service.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome, debounced } from "./watch.ts";
@@ -41,7 +42,7 @@ interface State {
 function compute(previous: State): State {
   try {
     const config = readConfig(home);
-    const pet = resolvePet(config.pet, config.enabled !== false);
+    const pet = resolvePet(config.pet, config.enabled !== false, desktopPetSupported(process.platform));
     const { look, warnings } = loadLook(home);
     if (!look) return { css: "", material: OFFICIAL_MATERIAL, pet };
     const result = buildCss(look);
@@ -68,7 +69,10 @@ const pet = createPetService({
   logDir: zcodeLogDir(),
   log,
   send(payload) {
-    for (const contents of renderers) {
+    // The desktop pet page gets the same pushes, but is not one of the renderers: those are ZCode's
+    // main pages, which also receive CSS and decide when the desktop pet must go.
+    const desktopPage = desktop?.contents();
+    for (const contents of desktopPage ? [...renderers, desktopPage] : renderers) {
       if (contents.isDestroyed()) continue;
       try {
         contents.send(CHANNEL_PET, payload);
@@ -78,6 +82,28 @@ const pet = createPetService({
     }
   },
 });
+
+/** Desktop mode (pet-desktop.ts): created the first time it is needed, so off it costs nothing. */
+let desktop: ReturnType<typeof createDesktopPet> | null = null;
+
+/** Called whenever the settings or the set of main pages change; see pet-desktop.ts sync. */
+function syncDesktopPet() {
+  try {
+    if (!desktop) {
+      if (!state.pet.enabled || !state.pet.desktop || renderers.size === 0) return;
+      desktop = createDesktopPet({
+        electron: { BaseWindow, WebContentsView, screen, ipcMain, powerMonitor },
+        page: join(__dirname, "pet-desktop.html"),
+        preload: join(__dirname, "pet-desktop-preload.cjs"),
+        positionFile: paths.petPosition(home),
+        log,
+      });
+    }
+    desktop.sync(state.pet, renderers.size);
+  } catch (error) {
+    log(`desktop pet unavailable: ${String(error)}`);
+  }
+}
 
 /** Set while ZCode's shortcut recorder is armed; the panel shortcut stands down so the user can
  *  bind the combination to a ZCode command (and no panel pops up mid-recording). */
@@ -263,7 +289,10 @@ function applyMaterial(contents: WebContents) {
 function track(contents: WebContents) {
   if (renderers.has(contents)) return;
   renderers.add(contents);
-  contents.once("destroyed", () => renderers.delete(contents));
+  // Synchronously: the desktop pet must be gone before ZCode checks whether its last window closed.
+  contents.once("destroyed", () => { renderers.delete(contents); syncDesktopPet(); });
+  // Not inside the page's synchronous GET.
+  setImmediate(syncDesktopPet);
 }
 
 function reload() {
@@ -283,6 +312,7 @@ function reload() {
     }
   }
   pet.configure(state.pet);
+  syncDesktopPet();
   log(`reloaded (css ${state.css.length} bytes, material ${state.material}, pet ${state.pet.enabled ? "on" : "off"})`);
 }
 
@@ -325,7 +355,7 @@ try {
   } catch (error) { log(`overlay logging unavailable: ${String(error)}`); }
   try {
     ipcMain.handle(CHANNEL_PET_GET, (event) => {
-      if (!senderIsMainWindow(event as unknown as IpcMainEvent)) throw new Error("refused: sender is not ZCode's main window");
+      if (!senderIsMainWindow(event as unknown as IpcMainEvent) && !desktop?.isPage(event.sender)) throw new Error("refused: sender is neither ZCode's main window nor the desktop pet");
       return pet.payload();
     });
     pet.configure(state.pet);

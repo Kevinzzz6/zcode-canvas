@@ -17,14 +17,14 @@ export function debounced(fn: () => void, ms: number): () => void {
 
 /**
  * Watches `home` recursively and calls `onChange` (debounced) when anything but the runtime's own
- * log changes. Watch errors — the home deleted by `zcode-canvas restore --purge`, a filesystem
+ * log or the desktop pet's position changes. Watch errors — the home deleted by `zcode-canvas restore --purge`, a filesystem
  * that drops a recursive watch, permissions — are logged and close the watcher: hot reload quietly
  * stops instead of surfacing an unhandled 'error' event, which would crash ZCode's main process.
  */
 export function watchHome(home: string, onChange: () => void, log: (message: string) => void, debounceMs = 150): FSWatcher {
   const schedule = debounced(onChange, debounceMs);
   const watcher = watch(home, { recursive: true }, (_event, file) => {
-    if (file && /runtime\.log/.test(String(file))) return;
+    if (file && /runtime\.log|pet-position\.json/.test(String(file))) return;
     schedule();
   });
   watcher.on("error", (error) => {

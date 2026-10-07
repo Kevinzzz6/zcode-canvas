@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { rmSync } from "node:fs";
+import { copyFileSync, rmSync } from "node:fs";
 
 rmSync("dist", { recursive: true, force: true });
 
@@ -32,3 +32,22 @@ await build({
   platform: "browser",
   external: ["electron"],
 });
+
+// Desktop mode's own page: its preload (sandboxed, like the one above) and its page script, a plain
+// browser script without any electron access.
+await build({
+  ...common,
+  entryPoints: ["src/runtime/pet-desktop-preload.ts"],
+  outfile: "dist/runtime/pet-desktop-preload.cjs",
+  format: "cjs",
+  platform: "browser",
+  external: ["electron"],
+});
+await build({
+  ...common,
+  entryPoints: ["src/runtime/pet-desktop-page.ts"],
+  outfile: "dist/runtime/pet-desktop.js",
+  format: "iife",
+  platform: "browser",
+});
+copyFileSync("src/runtime/pet-desktop.html", "dist/runtime/pet-desktop.html");
