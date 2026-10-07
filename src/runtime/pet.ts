@@ -106,14 +106,13 @@ const style = `
 .bubble .b2{transition-delay:.3s}.bubble .b1{transition-delay:.2s}.bubble .shape{transition-delay:.1s}
 .bubble.open svg :is(path,ellipse){opacity:1;transform:none;pointer-events:visiblePainted}
 .bubble.open .b2{transition-delay:0s}.bubble.open .b1{transition-delay:.13s}.bubble.open .shape{transition-delay:.26s}
-.text,.gif{position:absolute;left:44.25%;top:38%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .16s ease}
-.pet.left :is(.text,.gif){transform:translate(-50%,-50%) scaleX(-1)}
-.bubble.open :is(.text,.gif){opacity:1;transition:opacity .16s ease .36s}
+.text{position:absolute;left:44.25%;top:38%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .16s ease}
+.pet.left .text{transform:translate(-50%,-50%) scaleX(-1)}
+.bubble.open .text{opacity:1;transition:opacity .16s ease .36s}
 .text{text-align:center;color:var(--text);line-height:1.15;white-space:nowrap}
 .text.a{font-size:calc(var(--u) * 66);font-weight:600;letter-spacing:.06em;white-space:normal;width:max-content;max-width:calc(var(--u) * 560);line-height:1.2}
 .text.b{font-size:calc(var(--u) * 128);font-weight:800;line-height:1.05}
-.gif{max-width:calc(var(--u) * 560);max-height:calc(var(--u) * 400);object-fit:contain;-webkit-user-drag:none}
-.gif[hidden],.text[hidden]{display:none}
+.text[hidden]{display:none}
 `;
 
 /** The fox widget's bubble geometry: one large ellipse with a tail and two small bubbles. */
@@ -142,14 +141,14 @@ export function mountPet(api: PetApi): { update(view: PetView): void } {
     pet.dataset.mood = "idle";
     // Constant template; lines only ever go through textContent.
     pet.innerHTML = `<div class="body"><div class="figure"><img class="char" alt="" draggable="false"><span class="badge"></span></div></div>
-      <div class="bubble">${bubbleMarkup}<img class="gif" alt="" draggable="false" hidden><div class="text" hidden></div></div>`;
+      <div class="bubble">${bubbleMarkup}<div class="text" hidden></div></div>`;
     root.append(sheet, pet);
     document.documentElement.append(host);
     const q = <T extends Element>(selector: string) => pet.querySelector(selector) as T;
     return {
       host, pet,
       body: q<HTMLElement>(".body"), figure: q<HTMLElement>(".figure"), char: q<HTMLImageElement>(".char"),
-      bubble: q<HTMLElement>(".bubble"), gif: q<HTMLImageElement>(".gif"), text: q<HTMLElement>(".text"),
+      bubble: q<HTMLElement>(".bubble"), text: q<HTMLElement>(".text"),
       press: new Audio(), release: new Audio(),
     };
   }
@@ -254,18 +253,10 @@ export function mountPet(api: PetApi): { update(view: PetView): void } {
   }
   function showBubble(line: PetLine, from: "click" | PetMood) {
     if (!parts || !view?.pet.bubble) return;
-    const { gif, text } = parts;
-    if ("gif" in line) {
-      gif.src = view.assets.rua;
-      gif.hidden = false;
-      text.hidden = true;
-    } else {
-      text.textContent = line.text;
-      text.className = `text ${line.size === "A" ? "a" : "b"}`;
-      text.hidden = false;
-      gif.hidden = true;
-      gif.removeAttribute("src");
-    }
+    const { text } = parts;
+    text.textContent = line.text;
+    text.className = `text ${line.size === "A" ? "a" : "b"}`;
+    text.hidden = false;
     parts.bubble.classList.add("open");
     parts.pet.classList.add("talking");
     bubbleFrom = from;

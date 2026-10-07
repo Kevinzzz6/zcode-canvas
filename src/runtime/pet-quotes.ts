@@ -4,7 +4,7 @@
 import type { PetMood } from "../shared/pet-state.ts";
 
 /** "A": regular size, wraps; "B": large, one line. Mirrors the fox widget's two type sizes. */
-export type PetLine = { text: string; size: "A" | "B" } | { gif: true };
+export type PetLine = { text: string; size: "A" | "B" };
 
 const PICK = ["好模型... ↓", "好女孩...↓"];
 const QUOTES = ["你也要一份免费鸡蛋吗", "我去睡觉啦，测完叫我", "压力一只黑色小狐娘？！", "Zzzzzzz...", "token要逃走了！"];
@@ -16,7 +16,6 @@ const pickOne = (lines: readonly string[], random: () => number) => lines[Math.f
 const GROUPS: ReadonlyArray<{ weight: number; line: (random: () => number) => PetLine }> = [
   { weight: 7, line: (random) => ({ text: pickOne(PICK, random), size: "B" }) },
   { weight: 10, line: (random) => ({ text: pickOne(QUOTES, random), size: "A" }) },
-  { weight: 5, line: () => ({ gif: true }) },
   { weight: 5, line: (random) => ({ text: pickOne(TAIL, random), size: "A" }) },
   { weight: 1, line: () => ({ text: OHH, size: "B" }) },
 ];

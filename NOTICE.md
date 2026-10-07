@@ -6,9 +6,10 @@ The desktop pet's assets in `pets/fox/` come unmodified from
 [zcode-fox-widget](https://github.com/pigeon189/zcode-fox-widget) `assets/`:
 
 - `fox.png` is that project's `GLM.png` (the fox maid, added by pigeon189), renamed.
-- `rua.gif`, `Ya1.mp3`, `Ya2.mp3`, `D1.mp3` and `D2.mp3` are carried over by zcode-fox-widget from
+- `Ya1.mp3`, `Ya2.mp3`, `D1.mp3` and `D2.mp3` are carried over by zcode-fox-widget from
   its upstream [DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)
   by MeteorNOX, via [zcode-whale-widget](https://github.com/nb10yyds/zcode-whale-widget) by nb10yyds.
+  (That widget's head-pat animation gif is not carried over.)
 
 `src/runtime/pet.ts` re-implements that widget's speech bubble geometry, type sizes, press
 animation, quarter-snap dragging and press/release sound timing, and `src/runtime/pet-quotes.ts`

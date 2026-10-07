@@ -205,7 +205,7 @@ test("the service follows the log only while the pet is on and pushes every chan
   writeFileSync(file, `${line("turn.started")}\n`);
   const sent: PetPayload[] = [];
   let clock = 0;
-  const assets = { image: "file:///a.png", rua: "file:///r.gif", sounds: { duck: { press: "file:///1", release: "file:///2" }, fx1: { press: "file:///3", release: "file:///4" } } };
+  const assets = { image: "file:///a.png", sounds: { duck: { press: "file:///1", release: "file:///2" }, fx1: { press: "file:///3", release: "file:///4" } } };
   const service = createPetService({ assets, logDir: dir, send: (payload) => sent.push(payload), log: () => {}, pollMs: 60_000, now: () => clock });
   service.prompt(card(PERM));
   assert.equal(sent.length, 0, "an off pet ignores cards");
@@ -237,7 +237,7 @@ test("panel pet requests are checked field by field", () => {
 });
 
 test("the pet payload round-trips and ignores a newer protocol", () => {
-  const assets = { image: "file:///a.png", rua: "file:///r.gif", sounds: { duck: { press: "file:///1", release: "file:///2" }, fx1: { press: "file:///3", release: "file:///4" } } };
+  const assets = { image: "file:///a.png", sounds: { duck: { press: "file:///1", release: "file:///2" }, fx1: { press: "file:///3", release: "file:///4" } } };
   const pet = resolvePet({ enabled: true });
   assert.deepEqual(decodePet(encodePet(pet, "waiting", assets)), { pet, mood: "waiting", assets });
   assert.equal(decodePet({ ...encodePet(pet, "idle", assets), v: 2 }), null);

@@ -62,7 +62,6 @@ export function parsePetPatch(raw: unknown): PetSpec {
 /** file: URLs of the pet's bundled assets, resolved by the main process. */
 export interface PetAssets {
   image: string;
-  rua: string;
   sounds: Record<PetSound, { press: string; release: string }>;
 }
 

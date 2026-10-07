@@ -60,7 +60,7 @@ const renderers = new Set<WebContents>();
 /** The pet's bundled assets, deployed next to this file by `zcode-canvas apply`. */
 const petAssets: PetAssets = (() => {
   const url = (name: string) => pathToFileURL(join(__dirname, "pets", "fox", name)).href;
-  return { image: url("fox.png"), rua: url("rua.gif"), sounds: { duck: { press: url("Ya1.mp3"), release: url("Ya2.mp3") }, fx1: { press: url("D1.mp3"), release: url("D2.mp3") } } };
+  return { image: url("fox.png"), sounds: { duck: { press: url("Ya1.mp3"), release: url("Ya2.mp3") }, fx1: { press: url("D1.mp3"), release: url("D2.mp3") } } };
 })();
 
 const pet = createPetService({
