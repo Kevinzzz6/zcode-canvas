@@ -24,17 +24,34 @@ test("payloads from an incompatible newer protocol are ignored, not half-applied
 test("watchHome debounces edits into one reload and skips the runtime's own log", async () => {
   const home = mkdtempSync(join(tmpdir(), "zc-watch-"));
   const events: string[] = [];
+  const changes = () => events.filter((e) => e === "change").length;
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  /** Polls rather than sleeping a fixed time: macOS FSEvents delivers late and coalesces. */
+  const until = async (done: () => boolean, ms = 5000) => {
+    for (const end = Date.now() + ms; !done() && Date.now() < end;) await sleep(50);
+  };
   const watcher = watchHome(home, () => events.push("change"), (message) => events.push(message));
   try {
-    writeFileSync(join(home, "config.json"), "{}");
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    assert.deepEqual(events.filter((e) => e === "change"), ["change"]);
+    // A fresh watcher can miss the first writes (FSEvents starts up asynchronously): poke until it
+    // reports, then let it go quiet before measuring.
+    for (let i = 0; changes() === 0 && i < 25; i++) {
+      writeFileSync(join(home, `warmup-${i}`), "x");
+      await sleep(200);
+    }
+    assert.ok(changes() > 0, "the watcher reports changes at all");
+    await sleep(800);
+    events.length = 0;
+
+    for (let i = 0; i < 3; i++) writeFileSync(join(home, "config.json"), `{"n":${i}}`);
+    await until(() => changes() > 0);
+    await sleep(800);
+    assert.equal(changes(), 1, "a burst of edits reloads once");
     // The runtime's own log must not trigger a reload, nor the desktop pet saving where she was dropped.
     writeFileSync(join(home, "runtime.log"), "noise");
     writeFileSync(join(home, "pet-position.json.tmp-1"), "{}");
     writeFileSync(join(home, "pet-position.json"), "{}");
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.deepEqual(events.filter((e) => e === "change"), ["change"]);
+    await sleep(1500);
+    assert.equal(changes(), 1);
   } finally {
     watcher.close();
   }
