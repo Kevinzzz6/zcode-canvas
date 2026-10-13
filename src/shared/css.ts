@@ -18,6 +18,10 @@ import { linearLuminance, oklabToLinear, toLinear } from "./palette.ts";
 // exception is the coding-plan purchase webview (`section[data-testid="coding-plan-upgrade-surface"]`,
 // settings/CodingPlanEmbeddedWebviewDialog.tsx): a full-screen overlay rendered inline inside #root,
 // so the glass sheet restores its opaque colors explicitly (see UPGRADE_SURFACE below).
+// Since 3.15 (read from the build, not the source baseline), plugin pages open in the side pane are
+// the other thing painted outside #root: their <webview> is moved into a layer appended to <body>.
+// Opening settings does not unmount the workspace, it covers it and sets it to opacity 0, which does
+// not reach that layer; the glass sheet hides it too (see PLUGIN_PAGE_LAYER below).
 // Selectors carry an id so they outrank ZCode's own rules regardless of sheet order.
 
 /** The surface tokens made translucent, by the region that paints them (see shared/glass.ts).
@@ -46,6 +50,14 @@ const COLOR_TOKEN = /^(--color-)?[a-z0-9][a-z0-9-]*$/;
  *  conversation through the purchase page (and put a backdrop-filter under its <webview>), so the
  *  sheet keeps it opaque and unblurred like every portaled dialog. */
 export const UPGRADE_SURFACE = 'section[data-testid="coding-plan-upgrade-surface"]';
+
+/** The workspace while the settings page covers it: ZCode keeps it mounted underneath at opacity 0. */
+export const COVERED_WORKSPACE = '[data-root-workspace-surface="inert"]';
+
+/** The layer on <body> holding the <webview> of each plugin page open in the side pane, lined up over
+ *  the pane from outside #root. An opaque settings page covered it; a translucent one shows it through,
+ *  so while settings is open the sheet hides it the way ZCode hides the workspace. */
+export const PLUGIN_PAGE_LAYER = "[data-sandbox-page-parking]";
 
 /** The grammar of a value, by where it is used. "image" adds gradients to "color", "vars" is the
  *  escape hatch and may also quote font stacks and reference other properties. */
@@ -373,6 +385,7 @@ export function buildCss(look: ResolvedLook): CssResult {
     rules.push(
       block(UPGRADE_SURFACE, translucent.map(([token]) => `--color-${token}: var(--zc-src-${token})`)),
     );
+    rules.push(block(`body:has(> #root ${COVERED_WORKSPACE}) > ${PLUGIN_PAGE_LAYER}`, ["opacity: 0"]));
     // Regions sharing a radius share one rule, so the untuned case stays a single declaration.
     const byBlur = new Map<number, string[]>();
     for (const region of BLUR_REGIONS) {

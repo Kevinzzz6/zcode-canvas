@@ -5,7 +5,16 @@ import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
-import { buildCss, contrastForeground, isSafeCssValue, tokenProperty, UPGRADE_SURFACE, type CssValueKind } from "../src/shared/css.ts";
+import {
+  buildCss,
+  contrastForeground,
+  COVERED_WORKSPACE,
+  isSafeCssValue,
+  PLUGIN_PAGE_LAYER,
+  tokenProperty,
+  UPGRADE_SURFACE,
+  type CssValueKind,
+} from "../src/shared/css.ts";
 import { checkManifest, listThemes, loadLook, readConfig, resolveLook, type StartupAnimation, type ThemeEntry } from "../src/shared/look.ts";
 import { contrastRatio } from "../src/shared/palette.ts";
 
@@ -104,6 +113,14 @@ test("glass keeps the coding-plan upgrade overlay opaque over the conversation",
   assert.ok(css.includes(`#root .bg-background:not(${UPGRADE_SURFACE}, ${UPGRADE_SURFACE} *)`));
   // Without glass nothing is restyled, so the overlay needs no restoring rule either.
   assert.doesNotMatch(buildCss(resolveLook({}, null, "/home")).css, /coding-plan-upgrade-surface/);
+});
+
+test("glass hides side-pane plugin pages while the settings page covers the workspace", () => {
+  const { css } = buildCss(resolveLook({ glass: { opacity: 0.5, blur: 12 } }, null, "/home"));
+  // Their <webview> sits in a layer on <body>, out of reach of the workspace's opacity 0; an opaque
+  // settings page covered it, a translucent one shows it through. Hidden only while settings is open.
+  assert.ok(css.includes(`body:has(> #root ${COVERED_WORKSPACE}) > ${PLUGIN_PAGE_LAYER} {\n  opacity: 0;\n}`));
+  assert.doesNotMatch(buildCss(resolveLook({}, null, "/home")).css, /sandbox-page-parking/);
 });
 
 test("unsafe values are dropped with a warning", () => {
