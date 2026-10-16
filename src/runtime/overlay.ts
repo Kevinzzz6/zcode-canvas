@@ -61,6 +61,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     <button class="entry" aria-label="外观 · 主题与壁纸" aria-expanded="false" aria-controls="panel">${paletteIcon}</button>
     <section id="panel" class="panel" role="dialog" aria-label="外观" hidden>
       <header><div class="brand">${paletteIcon}</div><div><h1>外观</h1><div class="sub">CANVAS</div></div><div class="spacer"></div>
+        <span class="mode-switch" role="group" aria-label="Canvas 总开关" title="关闭后 ZCode 恢复原样，设置都会保留"><button id="canvas-off" type="button">关</button><button id="canvas-on" type="button">开</button></span>
         <button class="icon" id="options" aria-label="更多选项" aria-haspopup="true">···</button>
         <button class="icon" id="close" aria-label="关闭外观面板"><svg viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg></button></header>
       <div class="content">
@@ -642,7 +643,9 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     $<HTMLButtonElement>("center-position").disabled = !wallpaper || data.config.enabled === false;
     $("overlay-notice").hidden = !wallpaper || wallpaper.dim <= 0;
     $<HTMLButtonElement>("clear-overlay").disabled = data.config.enabled === false;
-    $("status").textContent = data.config.enabled === false ? "Canvas 当前已禁用，请在配置中启用" : "即点即用 · 所有窗口同步";
+    $("status").textContent = data.config.enabled === false ? "Canvas 已关闭 · 点右上角「开」恢复" : "即点即用 · 所有窗口同步";
+    $("canvas-on").setAttribute("aria-pressed", String(data.config.enabled !== false));
+    $("canvas-off").setAttribute("aria-pressed", String(data.config.enabled === false));
     const painted = data.imageUrl?.[mode()] ?? null;
     if (painted !== sampledUrl) { sampledUrl = painted; sampleWallpaper(painted); }
     else renderPalette();
@@ -714,6 +717,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   const endDrag = () => { if (entryDrag?.moved) { suppressClick = true; savePreferences(); } entryDrag = null; };
   listen(entry, "pointerup", endDrag); listen(entry, "pointercancel", endDrag);
   listen($("options"), "click", () => showMenu($("options")));
+  listen($("canvas-on"), "click", () => { if (data?.config.enabled === false) return mutate(() => api.apply({ enabled: true }), "Canvas 已开启 · 所有窗口同步"); });
+  listen($("canvas-off"), "click", () => { if (data && data.config.enabled !== false) return mutate(() => api.apply({ enabled: false }), "Canvas 已关闭 · ZCode 恢复原样，设置都已保留"); });
   listen($("close"), "click", () => dismiss(true));
   listen($("pick"), "click", () => mutate(() => api.pickWallpaper(), (next) =>
     next.effective.glass.regions.frame.opacity >= 1 ? "壁纸库已更新 · 界面不透明，调高「界面透明」后可见" : "壁纸库已更新"));

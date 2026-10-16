@@ -102,6 +102,16 @@ test("swatches reject unsafe CSS and effective values inherit theme tuning", () 
   assert.equal(data.config.wallpaper?.blur, undefined);
 });
 
+test("the master switch only flips enabled and keeps every setting", () => {
+  const home = makeHome();
+  const before: CanvasConfig = { enabled: true, theme: "mine", accent: "#7c5cff", pet: { enabled: true } };
+  const off = applyPanelInput(before, { enabled: false }, home);
+  assert.deepEqual(off, { ...before, enabled: false });
+  assert.deepEqual(applyPanelInput(off, { enabled: true }, home), before);
+  assert.throws(() => applyPanelInput(before, { enabled: "false" }, home), /invalid enabled request/);
+  assert.throws(() => applyPanelInput(before, { enabled: null }, home), /invalid enabled request/);
+});
+
 test("pet settings merge field by field, are validated, and are not part of the look", () => {
   const home = makeHome();
   const before: CanvasConfig = { theme: "mine", accent: "#7c5cff", pet: { enabled: true, scale: 2 } };

@@ -151,6 +151,7 @@ export function readPanelData(home: string): PanelData {
 }
 
 export interface PanelInput {
+  enabled?: unknown;
   theme?: unknown;
   wallpaper?: unknown;
   fit?: unknown;
@@ -211,7 +212,7 @@ const REGION_INPUTS = {
 type RegionInput = keyof typeof REGION_INPUTS;
 const REGION_INPUT_KEYS = Object.keys(REGION_INPUTS) as RegionInput[];
 const PANEL_INPUT_KEYS = new Set([
-  "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS,
+  "enabled", "theme", "wallpaper", "fit", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS,
   "glassOpacity", "glassBlur", "material", "accent", "radius", "palette", "positionX", "positionY", "reset", "clearOverlay", "discard", "unset", "pet",
 ]);
 const UNSET_KEYS = new Set(["glassOpacity", "glassBlur", "radius", "positionX", "positionY", ...Object.keys(WALLPAPER_NUMBERS), ...REGION_INPUT_KEYS]);
@@ -309,6 +310,10 @@ export function applyPanelInput(config: CanvasConfig, input: PanelInput, home: s
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid panel request");
   for (const key of Object.keys(input)) if (!PANEL_INPUT_KEYS.has(key)) throw new Error(`unknown panel field ${key}`);
   const next = { ...config };
+  if (input.enabled !== undefined) {
+    if (typeof input.enabled !== "boolean") throw new Error("invalid enabled request");
+    next.enabled = input.enabled;
+  }
   if (input.discard !== undefined) {
     if (input.discard !== true) throw new Error("invalid discard request");
     for (const key of LOOK_KEYS) delete next[key];

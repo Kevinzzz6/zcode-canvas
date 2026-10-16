@@ -75,7 +75,7 @@ Windows 上 ZCode 装在受保护目录时要用管理员终端，Linux 用 `sud
 
 - 显示“有待 ZCode 退出后替换的文件”：ZCode 还没彻底退出。请从托盘退出（关闭窗口只会缩到托盘），再重新打开。
 - 补丁显示“未安装”：ZCode 可能刚更新过，重新 `apply` 一次。
-- Canvas 显示“已关闭”：`config.json` 里的 `enabled` 被设成了 `false`。
+- Canvas 显示“已关闭”：`config.json` 里的 `enabled` 被设成了 `false`。点外观中心右上角的「开」，或运行 `zcode-canvas set enabled true` 即可恢复。
 
 </details>
 
@@ -376,7 +376,7 @@ zcode-canvas restore           # 还原 app.asar，和官方文件逐字节一�
 zcode-canvas restore --purge   # 同时删除 ~/.zcode-canvas（包括你的主题和壁纸库）
 ```
 
-想临时关掉 Canvas 有两种方法：在 `config.json` 里设置 `"enabled": false`；或者用环境变量 `ZCODE_CANVAS_DISABLE=1` 启动 ZCode，这时补丁什么都不会加载。
+想临时关掉 Canvas 有两种方法：点外观中心右上角的「关」（等同于 `zcode-canvas set enabled false`，主题、壁纸等设置都会保留，再点「开」即恢复）；或者用环境变量 `ZCODE_CANVAS_DISABLE=1` 启动 ZCode，这时补丁什么都不会加载。
 
 ## 平台支持
 
