@@ -21,7 +21,7 @@
 |---|---|---|
 | asar 补丁与还原、CSS 白名单、主题格式、配置读写、保存为主题 | 稳定 | 还原与官方文件逐字节一致；theme.json format 1 只做向后兼容的新增；CSS 值只接受白名单语法；保存出的主题自包含，且与保存前外观一致 |
 | 菜单、托盘、快捷键、外观中心入口 | 尽力而为 | ZCode 改版后允许暂时失效，但不能影响 ZCode 本身 |
-| 桌宠的状态感知 | 尽力而为 | 读不懂日志时只会待机，不报错、不影响 ZCode；默认关闭 |
+| 桌宠的状态感知与测速 | 尽力而为 | 读不懂日志时只会待机，读不了用量表时不显示速度，不报错、不影响 ZCode；默认关闭 |
 
 改动稳定部分时，必须保持上表里的承诺，并补测试锁定。尽力而为部分的改动，只要求不越过安全底线。
 
@@ -49,6 +49,9 @@
 | ZCode 用 `BrowserWindow` 列表挑窗口（`isLastWindow`、OAuth 深链与更新弹窗里 `getAllWindows()[0]` 的兜底、`browser-window-created`），并靠 `window-all-closed` 在 macOS/Linux 上退出；任何还开着的 `BaseWindow` 都会让 `window-all-closed` 不触发 | `packages/desktop/src/main/index.ts`、`desktopOAuthDeepLink.ts`、`autoUpdater.ts`、`forceUpdatePrompt.ts` | `src/runtime/pet-desktop.ts`（桌面桌宠用 `BaseWindow`，这些逻辑都看不到它）、`src/runtime/main.ts` 的 `track`/`syncDesktopPet`（主窗口页面清零时同步销毁桌宠） | ZCode 改成按 `BaseWindow` 挑窗口时，可能选中桌宠；销毁时机失效时，ZCode 关完窗口不退出（只能在任务管理器结束），这是桌面模式最需要回归的一条 |
 | ZCode 的 ARMS 采集脚本经全局 `web-contents-created` 注入所有页面（含 Canvas 自建的桌宠页面），回传依赖默认会话里的 `arms-rum-preload.cjs` | ZCode 主进程的遥测初始化 | `src/runtime/pet-desktop.ts` 的独立会话分区 `zcode-canvas-pet` | 桌宠页面里仍会出现 `ArmsRumBrowser`、`RumSDK`，但独立分区里没有回传通道，控制台打出 `ArmsEventBridge is not available, events dropped`，数据被丢弃；若 ZCode 改成别的回传方式，桌宠页面可能被当成 ZCode 页面上报 |
 | 日志事件及字段：`turn.started` / `turn.completed` / `turn.failed`（手动停止时 `status` 为 `cancelled`），`model.request.started`，`tool.call.started` / `completed` / `failed` 的 `toolCallId`，`tool.permission.resolved` 的 `context.requestId`（与卡片 id 相同，回答、批准、拒绝都会写），`context.querySource`（`main_turn` / `subagent`），子代理会话 id `sess_subagent_<agentId>` 及父会话的 `subagent.*` 事件 | ZCode core runtime、`core/tool/executor/call-runner.ts`、`permission-flow.ts`、subagent 模块的日志调用 | `src/shared/pet-state.ts` 的 `parseLogLine` | 对应的状态不再出现，或桌宠停在某个状态直到超时兜底（回合 10 分钟，卡片 4 小时） |
+| 测速用的日志事件及字段（3.18.2 @ `fec9759` 核对）：上面几个回合事件的 `turnId`；`model.request.completed` 的 `context.querySource`，core.runtime 那条写在该请求的用量行落库之后；`ttft.model.first_content` 的 `context.at`（首个 token 的时刻，文本、推理、工具调用都算）和 `context.querySource`。日志里的 token 数一律是 `"[Redacted]"`，所以数量只能从用量表读 | `core/src/runtime/methods/turn-model-step.ts`（`recordMainTurnModelUsage` 之后写日志），adapters 模型层的 ttft 诊断日志 | `src/shared/pet-tps.ts` 的 `parseTpsLine` | 进行中的速度停在“热身”或不更新，回合结束才出数；只调工具、没有首 token 时刻的请求不计入 |
+| 用量表 `model_usage`：`~/.zcode/cli/db/db.sqlite`（或环境变量 `ZCODE_SESSION_DB_PATH` / `ZCODE_SESSION_DB`），WAL 模式；每次模型请求在结束时写一行，流式输出期间不写；读 `session_id`、`turn_id`、`query_source`、`started_at`、`first_token_at`（只认文本和推理 token，只调工具的请求为空）、`completed_at`、`output_tokens`（含推理 token） | `apps/zcode-cli/packages/adapters/src/storage/session-store/`（`paths.ts`、`migrations.ts`、`repositories/usage.ts`），`core/src/runtime/methods/usage-observability.ts` | `src/runtime/pet-usage.ts`，`src/shared/pet-tps.ts` 的 `pace` | 气泡里不显示速度（`runtime.log` 记一次），其他照常；查询计划变差时每次读取变慢（只在请求结束时读，读的是索引覆盖的少数行） |
+| ZCode 的 Electron 自带可用的 `node:sqlite`（ZCode 自己的存储也用它），经 `process.getBuiltinModule` 按需加载 | ZCode 打包的 Electron / Node 版本 | `src/runtime/pet-usage.ts` | 没有时不显示速度，`runtime.log` 记一次；运行时其余部分不受影响（不在加载时 `require`） |
 
 新增任何对 ZCode 内部实现的依赖，都要先在这张表里加一行。
 
@@ -87,10 +90,15 @@
   - 拖动用固定尺寸的 `setBounds` 移动窗口（`setPosition` 在小数缩放下每次让窗口长大约 1px）。位置是 UI 偏好，存 Canvas 目录下的 `pet-position.json`（不进 `config.json`，热重载不监听它），记离最近工作区边缘的距离和所在工作区，恢复时限制在工作区内；吸附贴屏幕工作区边缘，靠左时转身。
   - Linux 上开关不可用并说明原因：Wayland 下应用不能自己定位窗口，也不支持“透明处穿透、不透明处可点”。只为真机验证，用环境变量 `ZCODE_CANVAS_PET_DESKTOP=force` 启动 ZCode 时也启用（面板注明“尚未验证”，`runtime.log` 记一行），不写进配置，Canvas 自己从不设置它。macOS 的验证步骤见 [mac-test-plan.md](mac-test-plan.md) 的 H 节。
 - 状态来自两处，都是只读的（第 3 节）。一是 ZCode 的事件日志：主进程里的定时器每 500ms 读一次追加的内容，桌宠关闭时停止；启动时从当天日志的末尾开始，不回放历史；一次积压超过 1MB 时跳过旧的部分。二是 ZCode 渲染层发给主进程的卡片通知：只在被观察的两个通道上包一层监听，原样转交给 ZCode 自己的处理函数，其他通道保持 ZCode 注册的原函数，`removeListener` 不受影响。日志里没有“等待用户”的记录，所以“等你回应”只来自卡片通知，不做推断。
-- 不开端口、不起额外进程（桌面模式的页面进程是 Electron 在 ZCode 进程树里起的渲染进程，见第 6 节）、不写 ZCode 的任何文件、不读对话内容（只用事件名、会话 id、工具调用 id 和卡片 id）。
+- 不开端口、不起额外进程（桌面模式的页面进程是 Electron 在 ZCode 进程树里起的渲染进程，见第 6 节）、不写 ZCode 的任何文件、不读对话内容（只用事件名、会话 id、回合 id、工具调用 id 和卡片 id；测速另读用量表里每次请求的 token 数和时间戳，都是数字）。
 - 各会话分别跟踪，按紧急程度合并成一个状态：等你回应 > 出错 > 干活 > 思考 > 完成 > 待机。“完成”和“出错”只看主会话这一轮的结束；手动停止（`turn.failed` 且 `status` 为 `cancelled`）不算出错；子代理运行时只算干活。回合 10 分钟没有任何事件就当作已经结束。思考、干活、待机之间的切换至少保持 1.5 秒，避免闪烁。
 - “等你回应”：卡片弹出即进入，按卡片 id 去重，多张卡片全部处理完才退出。同一 id 的 `tool.permission.resolved` 出现即退出（回答、批准、拒绝、自动作答都会写）；这一轮结束时清掉该会话的卡片；id 不是 `perm_` 开头的卡片没有对应日志，在该会话的下一条事件时退出；4 小时兜底。ZCode 不发通知的情况就不提醒：卡片在没打开的会话里、切到会话时卡片已经存在、设置里关闭了“通知”、卡片已在时刷新或重启。
 - 读不懂的行直接忽略；跟随出错时每种错误只写一次 `runtime.log`。旧版主进程没有桌宠通道时，新版 preload 的请求被拒绝，桌宠不出现，其他功能照常。
+- 测速（`config.pet.tps`，默认开，与“说话”互不影响）显示主会话当前这一轮的输出速度：Σ 输出 token ÷ Σ（每次请求从首个 token 到结束的时间），不算等首字和跑工具的时间。ZCode 在流式输出期间不暴露任何 token 数（日志脱敏，用量行在请求结束时才写，流从宿主进程直接到页面），所以：
+  - 回合进行中是估算（≈）：本轮已结束请求的速度；第一个请求结束前（“热身”）用这个会话最近 20 次请求的速度，新会话用任意主会话最近 20 次的，都没有就只显示“···”。回合结束后读齐本轮的行，换成精确值（=），盖“实测”章，显示 12 秒。手动停止的回合有数据也照样出数，一个 token 都没写出就什么都不显示。
+  - 只跟一个回合：先开始的那个，结束并显示完精确值后，换成最近还有动静的那个；同一会话开了新回合立即接替。中途才打开测速（或桌宠）时，从这一轮的下一个请求接上，之前的请求按回合 id 一并计入。子代理和标题、摘要等旁路请求不计入。
+  - 用量表只在测速打开、桌宠打开、且日志说有请求结束、回合开始或结束时才读，每次只读当前显示的那一轮。每次读取都以只读方式打开、执行一条走索引的查询、立即关闭，不等锁（不设 busy timeout）；读失败后暂停 10 秒再试。只读连接不做 checkpoint，不删 WAL；WAL 读者在 `-shm` 里占一个读标记，这是 SQLite 并发读的正常机制，不阻塞 ZCode 写入。
+  - 展示：写东西时是缩小的气泡，代替头顶的“···”表示在忙。它一直开着，所以不接收点击，指针直接穿过去，不挡 ZCode 也不挡桌面上的其他窗口（桌面模式判定为透明处）。完整气泡（台词、精确值）照旧点一下就关，关掉的读数本阶段不再出现。等你回应时让位给“!”；点桌宠说的随机台词期间暂时让位。减少动画模式下数字直接跳到位，≈ 不起伏，不盖章动画。
 - 窗口内的位置是本地 UI 偏好（`localStorage` 的 `zcode-canvas:pet:v1`），不写进配置；桌面模式的位置见上。
 - 素材随包发布在 `pets/`，`apply` 时部署到运行时目录，以 `file:` URL 加载，不联网。
 

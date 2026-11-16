@@ -312,7 +312,9 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 
 自己手动停掉的回合不算出错；子代理跑完也不会喊“完成”，只有主会话这一轮结束时才会。同时开着几个会话时，她显示最需要你关注的那一个。
 
-桌宠默认关闭，在外观中心的“桌宠”里打开，或者运行 `zcode-canvas pet on`。点她会 Q 弹一下、发出声音、说一句随机台词；拖到窗口边缘附近会吸附，靠左时自动转身。图片透明的地方不挡鼠标。大小、音效、音量和“说话”开关都在外观中心里。
+**测速**（0.6.0 起）：AI 写东西时，她头顶的小气泡里会显示这一轮的输出速度。写的过程中是估算 `≈ 48 tok/s`，按本轮已经写完的请求算；刚开始还没有数据时参考这个会话最近的速度，写着“热身中~”。`≈` 会跟着速度起伏，越快抖得越急；下面一排五格能量条，大约每过 40、80、150、300 tok/s 多亮一格，过 1000 直接“破表”。这一轮结束后，数字换成 ZCode 用量记录里的精确值 `= 48.3 tok/s`，`≈` 变直成 `=`，再盖一个“实测”章。速度只算从第一个字到写完的时间，不算等首字和跑工具的时间。写东西时的小气泡不挡鼠标，点击会直接落到下面；等你回应时它让位给 `!`。不想看的话，在外观中心关掉“测速”，或运行 `zcode-canvas set pet.tps false`。
+
+桌宠默认关闭，在外观中心的“桌宠”里打开，或者运行 `zcode-canvas pet on`。点她会 Q 弹一下、发出声音、说一句随机台词；拖到窗口边缘附近会吸附，靠左时自动转身。图片透明的地方不挡鼠标。大小、音效、音量、“说话”和“测速”开关都在外观中心里。
 
 从 0.2 升级上来的，记得重新 `zcode-canvas apply` 一次并重启 ZCode：桌宠的图片和音效随运行时一起部署，不重新 `apply` 的话，打开桌宠也看不到她。
 
@@ -326,7 +328,7 @@ zcode-canvas wallpaper import "D:\SteamLibrary\steamapps\workshop\content\431960
 - 多一个页面进程，约 26 MB 内存，动画时约 1% CPU；随最后一个 ZCode 窗口关闭而销毁，不影响 ZCode 退出和更新。
 - Windows 从 0.4.0 起提供，macOS 从 0.5.0 起提供。Linux 上不提供：Wayland 下应用不能自己摆放窗口，也做不到“透明处穿透、不透明处可点”，开关不可用。
 
-状态来自 ZCode 自己写的事件日志 `~/.zcode/cli/log/zcode-<日期>.jsonl`，以及 ZCode 弹出提问或审批卡片时发出的通知：Canvas 在 ZCode 主进程里只读旁听，不开端口，不起额外进程。“等你回应”只对当前打开的会话生效，并且需要开着 ZCode 设置里的“通知”。这些都不是官方接口，ZCode 改版后她可能暂时只会待机，但不会影响 ZCode 本身。
+状态来自 ZCode 自己写的事件日志 `~/.zcode/cli/log/zcode-<日期>.jsonl`，以及 ZCode 弹出提问或审批卡片时发出的通知；测速另外读 ZCode 的用量记录 `~/.zcode/cli/db/db.sqlite`，只读每次请求的 token 数和时间，不读对话内容。Canvas 在 ZCode 主进程里只读旁听，不开端口，不起额外进程。“等你回应”只对当前打开的会话生效，并且需要开着 ZCode 设置里的“通知”。这些都不是官方接口，ZCode 改版后她可能暂时只会待机，但不会影响 ZCode 本身。
 
 形象、气泡、台词和音效来自 [zcode-fox-widget](https://github.com/pigeon189/zcode-fox-widget)（MIT），详见 [NOTICE.md](NOTICE.md)。
 
@@ -349,7 +351,7 @@ zcode-canvas unset wallpaper                      # 删除一项或一组设置�
 zcode-canvas new <id>                             # 把当前外观存成新主题
 zcode-canvas open                                 # 打开外观中心；ZCode 没运行时打开配置目录
 zcode-canvas pet on                               # 打开桌宠（off 关闭）
-zcode-canvas set pet.scale 1                      # 桌宠大小 0.6~2.5（默认 1.5），也可设 pet.volume / pet.sound / pet.bubble
+zcode-canvas set pet.scale 1                      # 桌宠大小 0.6~2.5（默认 1.5），也可设 pet.volume / pet.sound / pet.bubble / pet.tps
 zcode-canvas set pet.desktop true                 # 桌宠桌面模式：全局一只，ZCode 最小化时也在（Windows、macOS）
 zcode-canvas help                                 # 所有命令和可设置的键
 ```

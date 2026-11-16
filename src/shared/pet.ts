@@ -1,6 +1,7 @@
 // The desktop pet's settings (config.json `pet`) and the payload the runtime sends to the page.
 // Pure, no node or DOM imports: the main process, the preload and the panel all use it.
 import { PET_MOODS, type PetMood } from "./pet-state.ts";
+import { decodeTps, type PetTps } from "./pet-tps.ts";
 import { PROTOCOL_VERSION } from "./protocol.ts";
 
 export type PetSound = "duck" | "fx1";
@@ -19,6 +20,8 @@ export interface PetSpec {
   sound?: PetSound;
   /** Speech bubbles on click and when the agent needs attention. */
   bubble?: boolean;
+  /** The speed readout in her bubble while the agent writes (shared/pet-tps.ts). */
+  tps?: boolean;
   /** One pet on the desktop, in Canvas's own window, instead of one inside each ZCode window. */
   desktop?: boolean;
 }
@@ -29,6 +32,7 @@ export interface ResolvedPet {
   volume: number;
   sound: PetSound;
   bubble: boolean;
+  tps: boolean;
   /** Desktop mode in effect: asked for, and available on this platform. */
   desktop: boolean;
 }
@@ -74,6 +78,7 @@ export function resolvePet(spec: unknown, canvasEnabled = true, desktopAvailable
     volume: clamp(own.volume, 0, 1, PET_VOLUME_FALLBACK),
     sound: PET_SOUNDS.includes(own.sound as PetSound) ? (own.sound as PetSound) : "duck",
     bubble: own.bubble !== false,
+    tps: own.tps !== false,
     desktop: desktopAvailable && own.desktop === true,
   };
 }
@@ -83,7 +88,7 @@ export function parsePetPatch(raw: unknown): PetSpec {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("invalid pet request");
   const patch: PetSpec = {};
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if ((key === "enabled" || key === "bubble" || key === "desktop") && typeof value === "boolean") patch[key] = value;
+    if ((key === "enabled" || key === "bubble" || key === "tps" || key === "desktop") && typeof value === "boolean") patch[key] = value;
     else if (key === "scale" && typeof value === "number" && value >= PET_SCALE.min && value <= PET_SCALE.max) patch.scale = value;
     else if (key === "volume" && typeof value === "number" && value >= 0 && value <= 1) patch.volume = value;
     else if (key === "sound" && PET_SOUNDS.includes(value as PetSound)) patch.sound = value as PetSound;
@@ -103,17 +108,19 @@ export interface PetPayload {
   pet: ResolvedPet;
   mood: PetMood;
   assets: PetAssets;
+  /** The speed readout; null while there is none, or with the readout off. Absent from older mains. */
+  tps: PetTps | null;
 }
 
-export function encodePet(pet: ResolvedPet, mood: PetMood, assets: PetAssets): PetPayload {
-  return { v: PROTOCOL_VERSION, pet, mood, assets };
+export function encodePet(pet: ResolvedPet, mood: PetMood, assets: PetAssets, tps: PetTps | null = null): PetPayload {
+  return { v: PROTOCOL_VERSION, pet, mood, assets, tps };
 }
 
 /** Null for anything but the current protocol: a newer main is ignored until ZCode restarts. */
 export function decodePet(payload: unknown): Omit<PetPayload, "v"> | null {
   if (!payload || typeof payload !== "object") return null;
-  const { v, pet, mood, assets } = payload as Partial<PetPayload>;
+  const { v, pet, mood, assets, tps } = payload as Partial<PetPayload>;
   if (v !== PROTOCOL_VERSION || !pet || !assets || !PET_MOODS.includes(mood as PetMood)) return null;
   // Whether desktop mode applies was decided by the main process; only the shape is checked here.
-  return { pet: resolvePet(pet, true, true), mood: mood as PetMood, assets };
+  return { pet: resolvePet(pet, true, true), mood: mood as PetMood, assets, tps: decodeTps(tps) };
 }

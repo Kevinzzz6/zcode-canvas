@@ -206,7 +206,8 @@ test("the service follows the log only while the pet is on and pushes every chan
   const sent: PetPayload[] = [];
   let clock = 0;
   const assets = { image: "file:///a.png", sounds: { duck: { press: "file:///1", release: "file:///2" }, fx1: { press: "file:///3", release: "file:///4" } } };
-  const service = createPetService({ assets, logDir: dir, send: (payload) => sent.push(payload), log: () => {}, pollMs: 60_000, now: () => clock });
+  const usage = { turn: () => assert.fail("no turn is followed"), recent: () => assert.fail("no turn is followed") };
+  const service = createPetService({ assets, logDir: dir, usage, send: (payload) => sent.push(payload), log: () => {}, pollMs: 60_000, now: () => clock });
   service.prompt(card(PERM));
   assert.equal(sent.length, 0, "an off pet ignores cards");
   service.configure(resolvePet({ enabled: true }));
@@ -224,22 +225,27 @@ test("the service follows the log only while the pet is on and pushes every chan
 });
 
 test("pet settings default to off and are clamped; the master switch hides the pet", () => {
-  assert.deepEqual(resolvePet(undefined), { enabled: false, scale: 1.5, volume: 0.9, sound: "duck", bubble: true, desktop: false });
-  assert.deepEqual(resolvePet({ enabled: true, scale: 9, volume: -1, sound: "loud", bubble: false }), { enabled: true, scale: 2.5, volume: 0, sound: "duck", bubble: false, desktop: false });
+  assert.deepEqual(resolvePet(undefined), { enabled: false, scale: 1.5, volume: 0.9, sound: "duck", bubble: true, tps: true, desktop: false });
+  assert.deepEqual(resolvePet({ enabled: true, scale: 9, volume: -1, sound: "loud", bubble: false, tps: false }), { enabled: true, scale: 2.5, volume: 0, sound: "duck", bubble: false, tps: false, desktop: false });
   assert.equal(resolvePet({ enabled: true }, false).enabled, false);
   assert.equal(resolvePet({ scale: 1.23 }).scale, 1.2);
   assert.equal(resolvePet("on").enabled, false);
 });
 
 test("panel pet requests are checked field by field", () => {
-  assert.deepEqual(parsePetPatch({ enabled: true, scale: 1, volume: 0, sound: "fx1", bubble: false }), { enabled: true, scale: 1, volume: 0, sound: "fx1", bubble: false });
-  for (const bad of [null, [], { enabled: "yes" }, { scale: 3 }, { volume: 2 }, { sound: "x" }, { image: "C:/x.png" }]) assert.throws(() => parsePetPatch(bad));
+  assert.deepEqual(parsePetPatch({ enabled: true, scale: 1, volume: 0, sound: "fx1", bubble: false, tps: false }), { enabled: true, scale: 1, volume: 0, sound: "fx1", bubble: false, tps: false });
+  for (const bad of [null, [], { enabled: "yes" }, { scale: 3 }, { volume: 2 }, { sound: "x" }, { tps: 1 }, { image: "C:/x.png" }]) assert.throws(() => parsePetPatch(bad));
 });
 
 test("the pet payload round-trips and ignores a newer protocol", () => {
   const assets = { image: "file:///a.png", sounds: { duck: { press: "file:///1", release: "file:///2" }, fx1: { press: "file:///3", release: "file:///4" } } };
   const pet = resolvePet({ enabled: true });
-  assert.deepEqual(decodePet(encodePet(pet, "waiting", assets)), { pet, mood: "waiting", assets });
+  assert.deepEqual(decodePet(encodePet(pet, "waiting", assets)), { pet, mood: "waiting", assets, tps: null });
+  const tps = { turn: 3, phase: "live", value: 48.3 } as const;
+  assert.deepEqual(decodePet(encodePet(pet, "working", assets, tps))?.tps, tps);
+  assert.equal(decodePet({ ...encodePet(pet, "working", assets), tps: { turn: 3, phase: "racing", value: 1 } })?.tps, null, "a reading it cannot read is dropped, the rest still shows");
+  const { tps: _, ...older } = encodePet(pet, "idle", assets);
+  assert.deepEqual(decodePet({ ...older, pet: { ...pet, tps: undefined } }), { pet, mood: "idle", assets, tps: null }, "a main from before the readout");
   assert.equal(decodePet({ ...encodePet(pet, "idle", assets), v: 2 }), null);
   assert.equal(decodePet({ ...encodePet(pet, "idle", assets), mood: "dancing" }), null);
   assert.equal(decodePet(null), null);

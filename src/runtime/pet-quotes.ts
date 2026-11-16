@@ -1,6 +1,6 @@
 // What the pet says. The random lines are a selection of zcode-fox-widget's fox quote pack
-// (QUOTE_PACK_FOX) with its weights, without the group that showed spending; the mood lines are
-// Canvas's own.
+// (QUOTE_PACK_FOX) with its weights, without the group that showed spending; the mood lines and
+// the speed words are Canvas's own.
 import type { PetMood } from "../shared/pet-state.ts";
 
 /** "A": regular size, wraps; "B": large, one line. Mirrors the fox widget's two type sizes. */
@@ -40,4 +40,25 @@ const MOOD_LINES: Partial<Record<PetMood, readonly string[]>> = {
 export function moodLine(mood: PetMood, random: () => number = Math.random): PetLine | null {
   const lines = MOOD_LINES[mood];
   return lines ? { text: pickOne(lines, random), size: "A" } : null;
+}
+
+/**
+ * The speed readout's tiers: below how many tokens per second, and what she makes of it. Cut on a
+ * roughly logarithmic scale from speeds seen in model_usage (late 2026): GLM-5.3 writes around
+ * 80–120, Claude Opus 100–200, DeepSeek V4 Flash 160–210, Haiku around 300, "highspeed" models past
+ * 1000.
+ */
+const SPEEDS: ReadonlyArray<readonly [number, string]> = [[40, "慢吞吞~"], [80, "稳稳哒~"], [150, "唰唰唰！"], [300, "嗖嗖嗖！"], [1000, "光速狐狐！"], [Infinity, "破表啦！"]];
+
+/** Said while the turn's first request is still under way. */
+export const WARMUP_WORD = "热身中~";
+
+/** 0 (slow) to 5 (past 1000 tokens per second). */
+export function speedTier(value: number): number {
+  const tier = SPEEDS.findIndex(([below]) => value < below);
+  return tier < 0 ? SPEEDS.length - 1 : tier;
+}
+
+export function speedWord(value: number): string {
+  return SPEEDS[speedTier(value)]![1];
 }

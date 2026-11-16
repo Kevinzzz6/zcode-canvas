@@ -1,15 +1,18 @@
 // What the desktop pet looks like and how she reacts, shared by both placements: inside ZCode's main
 // window (pet.ts) and in Canvas's own desktop window (pet-desktop-page.ts). zcode-fox-widget's fox,
-// her bubble and press sounds, plus a mood driven by the runtime. Owned DOM only, in a closed Shadow
-// DOM; where the box sits and what a drag moves is up to the placement.
+// her bubble and press sounds, plus a mood and a speed readout driven by the runtime. Owned DOM
+// only, in a closed Shadow DOM; where the box sits and what a drag moves is up to the placement.
 import type { PetMood } from "../shared/pet-state.ts";
+import type { PetTps } from "../shared/pet-tps.ts";
 import type { PetAssets, ResolvedPet } from "../shared/pet.ts";
 import { moodLine, randomLine, type PetLine } from "./pet-quotes.ts";
+import { createReadout, readoutStyle } from "./pet-readout.ts";
 
 export interface PetView {
   pet: ResolvedPet;
   mood: PetMood;
   assets: PetAssets;
+  tps: PetTps | null;
 }
 
 const BUBBLE_MS = 5000;
@@ -56,20 +59,25 @@ const style = `
 @keyframes shake{0%,100%{transform:none}20%,60%{transform:translateX(-4%)}40%,80%{transform:translateX(4%)}}
 @keyframes droop{to{transform:translateY(4%) scale(1.02,.96);filter:saturate(.7)}}
 @media (prefers-reduced-motion:reduce){.pet .figure{animation:none!important}.body,.badge,.pet{transition:none}}
-.bubble{position:absolute;left:0;top:0;width:100%;aspect-ratio:1026/700;pointer-events:none}
-.bubble svg{display:block;width:100%;height:100%;pointer-events:none}
-.bubble svg :is(path,ellipse){fill:var(--fill);stroke:var(--ink);pointer-events:none;cursor:pointer;opacity:0;transform:scale(.7);transform-box:fill-box;transform-origin:50% 50%;transition:opacity .2s ease,transform .2s ease}
+/* The speed readout alone keeps to a smaller bubble, shrunk toward her head along the tail. */
+.bubble{position:absolute;left:0;top:0;width:100%;aspect-ratio:1026/700;pointer-events:none;transform-origin:43% 92%;transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
+.bubble.mini{transform:scale(.7)}
+.bubble>svg{display:block;width:100%;height:100%;pointer-events:none}
+.bubble>svg :is(path,ellipse){fill:var(--fill);stroke:var(--ink);pointer-events:none;cursor:pointer;opacity:0;transform:scale(.7);transform-box:fill-box;transform-origin:50% 50%;transition:opacity .2s ease,transform .2s ease}
 .bubble .b2{transition-delay:.3s}.bubble .b1{transition-delay:.2s}.bubble .shape{transition-delay:.1s}
-.bubble.open svg :is(path,ellipse){opacity:1;transform:none;pointer-events:visiblePainted}
+.bubble.open>svg :is(path,ellipse){opacity:1;transform:none;pointer-events:visiblePainted}
+/* The small bubble stays up as long as the agent writes: it never takes a click from what is under it. */
+.bubble.open.mini>svg :is(path,ellipse){pointer-events:none}
 .bubble.open .b2{transition-delay:0s}.bubble.open .b1{transition-delay:.13s}.bubble.open .shape{transition-delay:.26s}
-.text{position:absolute;left:44.25%;top:38%;transform:translate(-50%,-50%);pointer-events:none;opacity:0;transition:opacity .16s ease}
-.pet.left .text{transform:translate(-50%,-50%) scaleX(-1)}
-.bubble.open .text{opacity:1;transition:opacity .16s ease .36s}
+.say{position:absolute;left:44.25%;top:38%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:calc(var(--u) * 22);pointer-events:none;opacity:0;transition:opacity .16s ease}
+.pet.left .say{transform:translate(-50%,-50%) scaleX(-1)}
+.bubble.open .say{opacity:1;transition:opacity .16s ease .36s}
 .text{text-align:center;color:var(--text);line-height:1.15;white-space:nowrap}
-.text.a{font-size:calc(var(--u) * 66);font-weight:600;letter-spacing:.06em;white-space:normal;width:max-content;max-width:calc(var(--u) * 560);line-height:1.2}
+.text.a{font-size:calc(var(--u) * 66);font-weight:600;letter-spacing:.06em;white-space:normal;width:max-content;max-width:calc(var(--u) * 560);line-height:1.2;text-wrap:balance}
 .text.b{font-size:calc(var(--u) * 128);font-weight:800;line-height:1.05}
 .text[hidden]{display:none}
-`;
+@media (prefers-reduced-motion:reduce){.bubble{transition:none}}
+${readoutStyle}`;
 
 /** The fox widget's bubble geometry: one large ellipse with a tail and two small bubbles. */
 const bubbleMarkup = `<svg viewBox="0 0 1026 700" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -128,11 +136,13 @@ export function createPetDisplay(host: HTMLElement, drag: PetDrag, log: (message
   pet.hidden = true;
   // Constant template; lines only ever go through textContent.
   pet.innerHTML = `<div class="body"><div class="figure"><img class="char" alt="" draggable="false"><span class="badge"></span></div></div>
-    <div class="bubble">${bubbleMarkup}<div class="text" hidden></div></div>`;
+    <div class="bubble">${bubbleMarkup}<div class="say"><div class="text" hidden></div></div></div>`;
   root.append(sheet, pet);
   const q = <T extends Element>(selector: string) => pet.querySelector(selector) as T;
   const body = q<HTMLElement>(".body"), figure = q<HTMLElement>(".figure"), char = q<HTMLImageElement>(".char");
-  const bubble = q<HTMLElement>(".bubble"), text = q<HTMLElement>(".text");
+  const bubble = q<HTMLElement>(".bubble"), say = q<HTMLElement>(".say"), text = q<HTMLElement>(".text");
+  const readout = createReadout();
+  say.append(readout.element);
   const press = new Audio(), release = new Audio();
 
   let view: PetView | null = null;
@@ -140,8 +150,11 @@ export function createPetDisplay(host: HTMLElement, drag: PetDrag, log: (message
   let mask: Uint8Array | null = null;
   let maskFor = "";
   let pointer: { x: number; y: number; moved: boolean; id: number } | null = null;
-  let bubbleTimer: ReturnType<typeof setTimeout> | undefined;
-  let bubbleFrom: "click" | PetMood | null = null;
+  /** The line she is saying, for BUBBLE_MS: a click's random line or a mood's announcement. */
+  let said: { line: PetLine; from: "click" | PetMood } | null = null;
+  let saidTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The reading the user closed by clicking the bubble: that turn's live figure, or its final one. */
+  let closed = "";
   let releaseTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** A downscaled alpha channel of the picture; null (whole box clickable) if it cannot be read. */
@@ -204,22 +217,61 @@ export function createPetDisplay(host: HTMLElement, drag: PetDrag, log: (message
     else play(release);
   }
 
-  function hideBubble() {
-    clearTimeout(bubbleTimer);
-    bubble.classList.remove("open");
-    pet.classList.remove("talking");
-    bubbleFrom = null;
+  const readingKey = (reading: PetTps) => `${reading.turn}:${reading.phase === "final" ? "final" : "live"}`;
+
+  /**
+   * The speed reading to show. None with the readout off or closed by the user, while a click's
+   * line plays, or while a card waits for the user: nothing is being written then, and her "!" badge
+   * must stay in sight.
+   */
+  function reading(): PetTps | null {
+    const tps = view?.pet.enabled && view.pet.tps && view.mood !== "waiting" ? view.tps : null;
+    return tps && closed !== readingKey(tps) && said?.from !== "click" ? tps : null;
   }
-  function showBubble(line: PetLine, from: "click" | PetMood) {
+
+  /**
+   * One bubble for both: a line, the readout, or a mood's line above the readout. The readout alone
+   * while the agent writes sits in the small bubble; the exact figure gets the full one.
+   */
+  function renderBubble() {
+    const tps = reading();
+    const line = said?.line ?? null;
+    const open = !!line || !!tps;
+    text.hidden = !line;
+    if (line) {
+      text.textContent = line.text;
+      text.className = `text ${line.size === "A" || tps ? "a" : "b"}`;
+    }
+    say.classList.toggle("both", !!line && !!tps);
+    readout.show(tps);
+    const mini = !line && tps?.phase !== "final";
+    if (open && !bubble.classList.contains("open")) {
+      // Pops up at its size instead of growing or shrinking into it.
+      bubble.style.transition = "none";
+      bubble.classList.toggle("mini", mini);
+      void bubble.offsetWidth;
+      bubble.style.transition = "";
+    } else if (open) bubble.classList.toggle("mini", mini);
+    bubble.classList.toggle("open", open);
+    // The readout tells she is busy, as her "···" badge would.
+    pet.classList.toggle("talking", open);
+  }
+  function hush() {
+    clearTimeout(saidTimer);
+    said = null;
+  }
+  function sayLine(line: PetLine, from: "click" | PetMood) {
     if (!view?.pet.bubble) return;
-    text.textContent = line.text;
-    text.className = `text ${line.size === "A" ? "a" : "b"}`;
-    text.hidden = false;
-    bubble.classList.add("open");
-    pet.classList.add("talking");
-    bubbleFrom = from;
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(guard("bubble", hideBubble), BUBBLE_MS);
+    said = { line, from };
+    clearTimeout(saidTimer);
+    saidTimer = setTimeout(guard("bubble", () => { said = null; renderBubble(); }), BUBBLE_MS);
+  }
+  /** A click on the full bubble closes what it shows: the line, and the reading for the rest of its phase. */
+  function closeBubble() {
+    const tps = reading();
+    if (tps) closed = readingKey(tps);
+    hush();
+    renderBubble();
   }
 
   const listeners: Array<() => void> = [];
@@ -263,17 +315,21 @@ export function createPetDisplay(host: HTMLElement, drag: PetDrag, log: (message
     figure.classList.remove("dragging");
     pressUp();
     if (moved) drag.drop();
-    else if (event.type === "pointerup") showBubble(randomLine(), "click");
+    else if (event.type === "pointerup") {
+      sayLine(randomLine(), "click");
+      renderBubble();
+    }
   };
   on(figure, "pointerup", end);
   on(figure, "pointercancel", end);
-  on(bubble, "click", hideBubble);
+  on(bubble, "click", closeBubble);
 
   function update(next: PetView): boolean {
     const previous = view;
     view = next;
     if (!next.pet.enabled) {
-      hideBubble();
+      hush();
+      renderBubble();
       pet.hidden = true;
       return false;
     }
@@ -284,15 +340,17 @@ export function createPetDisplay(host: HTMLElement, drag: PetDrag, log: (message
     if (press.getAttribute("src") !== sounds.press) press.src = sounds.press;
     if (release.getAttribute("src") !== sounds.release) release.src = sounds.release;
     pet.dataset.mood = next.mood;
-    if (!next.pet.bubble) hideBubble();
-    if (!previous || previous.mood === next.mood || !previous.pet.enabled) return true;
-    // The announcement of a mood that has passed (the question was answered) goes with it.
-    if (bubbleFrom !== null && bubbleFrom !== "click" && bubbleFrom !== next.mood) hideBubble();
-    // A bubble the user asked for by clicking is never interrupted.
-    if (ANNOUNCED.has(next.mood) && bubbleFrom !== "click") {
-      const line = moodLine(next.mood);
-      if (line) showBubble(line, next.mood);
+    if (!next.pet.bubble) hush();
+    if (previous && previous.mood !== next.mood && previous.pet.enabled) {
+      // The announcement of a mood that has passed (the question was answered) goes with it.
+      if (said && said.from !== "click" && said.from !== next.mood) hush();
+      // A line the user asked for by clicking is never interrupted.
+      if (ANNOUNCED.has(next.mood) && said?.from !== "click") {
+        const line = moodLine(next.mood);
+        if (line) sayLine(line, next.mood);
+      }
     }
+    renderBubble();
     return true;
   }
 
@@ -317,7 +375,8 @@ export function createPetDisplay(host: HTMLElement, drag: PetDrag, log: (message
     figureRect: () => char.getBoundingClientRect(),
     dragging: () => pointer?.moved === true,
     dispose: guard("dispose", () => {
-      clearTimeout(bubbleTimer);
+      clearTimeout(saidTimer);
+      readout.dispose();
       clearTimeout(releaseTimer);
       for (const remove of listeners.splice(0)) remove();
       host.remove();

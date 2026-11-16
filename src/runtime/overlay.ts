@@ -103,6 +103,7 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
             <label class="select-row">音效<select id="pet-sound" aria-label="桌宠音效"><option value="duck">小黄鸭</option><option value="fx1">音效 1</option></select></label>
             <label class="select-row">音量<span class="pet-range"><input type="range" id="pet-volume" min="0" max="1" step="0.05" aria-label="桌宠音量"><small id="pet-volume-value"></small></span></label>
             <div class="select-row">说话<span class="mode-switch" role="group" aria-label="桌宠气泡"><button id="pet-quiet" type="button">关</button><button id="pet-talk" type="button">开</button></span></div>
+            <div class="select-row">测速<span class="mode-switch" role="group" aria-label="桌宠测速"><button id="pet-tps-off" type="button">关</button><button id="pet-tps-on" type="button">开</button></span></div>
             <div class="select-row">桌面模式<span class="mode-switch" role="group" aria-label="桌宠桌面模式"><button id="pet-window" type="button">关</button><button id="pet-desktop" type="button">开</button></span></div>
             <div id="pet-hint" class="hint"></div>
           </div>
@@ -661,12 +662,13 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
     const press = (id: string, value: boolean) => $(id).setAttribute("aria-pressed", String(value));
     press("pet-on", pet.enabled); press("pet-off", !pet.enabled);
     press("pet-talk", pet.bubble); press("pet-quiet", !pet.bubble);
+    press("pet-tps-on", pet.tps); press("pet-tps-off", !pet.tps);
     press("pet-desktop", pet.desktop); press("pet-window", !pet.desktop);
     $("pet-rows").hidden = !pet.enabled;
     showPetRange("pet-scale", pet.scale);
     showPetRange("pet-volume", pet.volume);
     $<HTMLSelectElement>("pet-sound").value = pet.sound;
-    for (const id of ["pet-on", "pet-off", "pet-talk", "pet-quiet", "pet-scale", "pet-volume", "pet-sound"]) ($(id) as HTMLButtonElement).disabled = busy || off;
+    for (const id of ["pet-on", "pet-off", "pet-talk", "pet-quiet", "pet-tps-on", "pet-tps-off", "pet-scale", "pet-volume", "pet-sound"]) ($(id) as HTMLButtonElement).disabled = busy || off;
     for (const id of ["pet-window", "pet-desktop"]) ($(id) as HTMLButtonElement).disabled = busy || off || !placement.available;
     $("pet-hint").textContent = placement.hint;
   }
@@ -746,6 +748,8 @@ export function mountOverlay(api: OverlayApi): { open(): void; refresh(): void }
   listen($("pet-off"), "click", () => applyPet({ enabled: false }, "桌宠已收起"));
   listen($("pet-talk"), "click", () => applyPet({ bubble: true }, "桌宠会说话了"));
   listen($("pet-quiet"), "click", () => applyPet({ bubble: false }, "桌宠不再说话 · 只做表情和动作"));
+  listen($("pet-tps-on"), "click", () => applyPet({ tps: true }, "AI 写东西时，气泡里会显示输出速度"));
+  listen($("pet-tps-off"), "click", () => applyPet({ tps: false }, "不再显示输出速度"));
   listen($("pet-desktop"), "click", () => applyPet({ desktop: true }, "桌宠搬到桌面上了 · ZCode 最小化时也在"));
   listen($("pet-window"), "click", () => applyPet({ desktop: false }, "桌宠回到窗口里了"));
   listen($("pet-sound"), "change", () => applyPet({ sound: $<HTMLSelectElement>("pet-sound").value }, "已更换桌宠音效"));

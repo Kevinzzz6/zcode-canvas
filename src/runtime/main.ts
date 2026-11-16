@@ -13,6 +13,7 @@ import { registerPanelHandlers } from "./panel.ts";
 import { zcodeLogDir } from "./pet-log.ts";
 import { createDesktopPet } from "./pet-desktop.ts";
 import { createPetService } from "./pet-service.ts";
+import { createUsageReader, zcodeUsageDb } from "./pet-usage.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome, debounced } from "./watch.ts";
 
@@ -69,6 +70,7 @@ const petAssets: PetAssets = (() => {
 const pet = createPetService({
   assets: petAssets,
   logDir: zcodeLogDir(),
+  usage: createUsageReader(zcodeUsageDb()),
   log,
   send(payload) {
     // The desktop pet page gets the same pushes, but is not one of the renderers: those are ZCode's
