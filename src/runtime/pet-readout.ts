@@ -1,7 +1,9 @@
 // The speed readout in the pet's bubble (shared/pet-tps.ts): "≈ 48 tok/s" over a five-pip power
 // meter while the agent writes, its waves rippling faster the faster she goes; once the turn is over
-// the waves straighten into "= 48.3" and a seal is stamped on it. Owned DOM in the pet's closed
-// Shadow DOM, styled by pet-display.ts's sheet; figures only ever go through textContent.
+// the waves straighten into "= 48.3" and a seal is stamped on it; once her line about it is over,
+// the freed room shows how long first tokens took ("首字 2.3 s"). Above it, a small tag names the
+// project and model when the figure is not the conversation open in this window. Owned DOM in the
+// pet's closed Shadow DOM, styled by pet-display.ts's sheet; text only ever goes through textContent.
 import type { PetTps, TpsPhase } from "../shared/pet-tps.ts";
 import { speedTier, speedWord, WARMUP_WORD } from "./pet-quotes.ts";
 
@@ -71,6 +73,19 @@ ${top}{animation:glow 1.2s ease-in-out infinite}
 .tps[data-phase=final] .spark{display:block;animation:twinkle .9s ease-out both}
 .tps[data-phase=final] .k1{animation-delay:.2s}.tps[data-phase=final] .k2{animation-delay:.32s}.tps[data-phase=final] .k3{animation-delay:.44s}
 @keyframes twinkle{0%{transform:scale(0) rotate(0);opacity:0}35%{transform:scale(1.2) rotate(25deg);opacity:1}100%{transform:scale(.5) rotate(60deg) translateY(-40%);opacity:0}}
+.tps .src{display:flex;align-items:center;gap:calc(var(--u) * 10);max-width:calc(var(--u) * 540);padding:calc(var(--u) * 7) calc(var(--u) * 20) calc(var(--u) * 7) calc(var(--u) * 14);
+  border-radius:999px;background:color-mix(in srgb,var(--text),transparent 88%);font-size:calc(var(--u) * 38);font-weight:700;white-space:nowrap}
+.tps .src[hidden]{display:none}
+.tps .src svg{flex:none;width:calc(var(--u) * 40);height:calc(var(--u) * 34);fill:var(--tier);transition:fill .4s ease}
+.tps .who{overflow:hidden;text-overflow:ellipsis;opacity:.85}
+.tps .who b{font-weight:700;opacity:.6}
+.tps:has(.src:not([hidden])){gap:calc(var(--u) * 14)}
+.tps:has(.src:not([hidden])) .num{font-size:calc(var(--u) * 128)}.tps:has(.src:not([hidden])) .dots{height:calc(var(--u) * 128)}
+.tps .extra{display:none;align-items:center;gap:calc(var(--u) * 10);font-size:calc(var(--u) * 40);font-weight:700;font-variant-numeric:tabular-nums;opacity:.7}
+.tps .extra svg{width:calc(var(--u) * 40);height:calc(var(--u) * 40);fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.tps .extra b{font-weight:700;opacity:.65}
+.say:not(.both) .tps[data-phase=final] .extra:not([hidden]){display:flex;animation:settle .45s cubic-bezier(.34,1.56,.64,1) both}
+@keyframes settle{0%{transform:translateY(-30%);opacity:0}100%{transform:none;opacity:.7}}
 .say.both .tps{gap:calc(var(--u) * 14)}
 .say.both .tps .num{font-size:calc(var(--u) * 106)}.say.both .tps .sign{width:calc(var(--u) * 62);height:calc(var(--u) * 58)}
 .say.both .tps .unit{font-size:calc(var(--u) * 36)}.say.both .tps .dots{height:calc(var(--u) * 106)}
@@ -80,13 +95,26 @@ ${top}{animation:glow 1.2s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){.tps *{animation:none!important;transition:none!important}}
 `;
 
-const markup = `<div class="row"><svg class="sign" viewBox="0 0 60 56"><path class="s1"/><path class="s2"/></svg><span class="num"></span><span class="dots"><i></i><i></i><i></i></span><span class="unit">tok/s</span>
+/** A stopwatch, for the wait before first tokens. */
+const stopwatch = `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="11.5" r="6.8"/><path d="M10 11.5V8M8 2.6h4M15.3 5.6l1.2-1.2"/></svg>`;
+
+/** A folder, the tag's mark: rounded like the rest of her bubble. */
+const folder = `<svg viewBox="0 0 20 17" aria-hidden="true"><path d="M2.5 1h5.2c.6 0 1.1.3 1.5.7L10.4 3H17.5A2.5 2.5 0 0 1 20 5.5v9A2.5 2.5 0 0 1 17.5 17h-15A2.5 2.5 0 0 1 0 14.5v-11A2.5 2.5 0 0 1 2.5 1z"/></svg>`;
+
+const markup = `<div class="src" hidden>${folder}<span class="who"></span></div><div class="row"><svg class="sign" viewBox="0 0 60 56"><path class="s1"/><path class="s2"/></svg><span class="num"></span><span class="dots"><i></i><i></i><i></i></span><span class="unit">tok/s</span>
 <span class="seal">实测</span><i class="spark k1">✦</i><i class="spark k2">✦</i><i class="spark k3">✦</i></div>
-<div class="meter"><span class="pips"><i></i><i></i><i></i><i></i><i></i></span><span class="word"></span></div>`;
+<div class="meter"><span class="pips"><i></i><i></i><i></i><i></i><i></i></span><span class="word"></span></div>
+<div class="extra" hidden>${stopwatch}<span class="waited"></span></div>`;
 
 /** An estimate shows whole numbers (tenths below 10); the exact figure tenths below 100. */
 export function formatTps(value: number, phase: TpsPhase): string {
   return value < (phase === "final" ? 100 : 10) ? value.toFixed(1) : String(Math.round(value));
+}
+
+/** "2.3 s", or whole seconds from 10 on. */
+export function formatWait(ms: number): string {
+  const seconds = ms / 1000;
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`;
 }
 
 /** Seconds per ripple of the ≈: quicker the faster she writes, a step per doubling. */
@@ -103,6 +131,10 @@ export function createReadout() {
   element.innerHTML = markup;
   const num = element.querySelector(".num") as HTMLElement;
   const word = element.querySelector(".word") as HTMLElement;
+  const src = element.querySelector(".src") as HTMLElement;
+  const who = element.querySelector(".who") as HTMLElement;
+  const extra = element.querySelector(".extra") as HTMLElement;
+  const waited = element.querySelector(".waited") as HTMLElement;
   const still = matchMedia("(prefers-reduced-motion: reduce)");
   let shown: PetTps | null = null;
   /** The figure on screen, mid-count included. */
@@ -145,6 +177,21 @@ export function createReadout() {
     else element.dataset.tier = String(tier);
     element.dataset.level = String(tier === null ? 0 : Math.min(5, tier + 1));
     word.textContent = tier === null ? WARMUP_WORD : speedWord(value!);
+    // Shown by the stylesheet only on a final figure, once her line has made room.
+    extra.hidden = reading.wait === undefined && !reading.buffered;
+    if (reading.buffered) waited.replaceChildren("含等待");
+    else if (reading.wait !== undefined) {
+      const label = document.createElement("b");
+      label.textContent = "首字 ";
+      waited.replaceChildren(label, formatWait(reading.wait));
+    }
+    src.hidden = !reading.source;
+    if (reading.source) {
+      // "project · model", the model dimmed; either alone when the other is unknown.
+      const { project, model } = reading.source;
+      const part = (text: string, dim: boolean) => { const node = document.createElement(dim ? "b" : "span"); node.textContent = text; return node; };
+      who.replaceChildren(...(project ? [part(project, false)] : []), ...(project && model ? [part(" · ", true)] : []), ...(model ? [part(model, !!project)] : []));
+    }
     if (value !== null) {
       element.style.setProperty("--dur", `${ripple(value).toFixed(2)}s`);
       // A new turn revs up from zero; an update counts on from where the figure stands.

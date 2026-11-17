@@ -45,6 +45,13 @@ export const ZCODE_SET_SHORTCUT_RECORDING = "zcode:set-shortcut-recording-active
  */
 export const ZCODE_SHOW_TASK_NOTIFICATION = "zcode:show-task-notification";
 
+/**
+ * Not a Canvas channel: each ZCode window's renderer tells its main process which conversation it
+ * has open whenever that changes (packages/shared channels.ts `SyncActiveTaskSession`), a session id
+ * or null. The pet's speed readout follows it (runtime/main.ts).
+ */
+export const ZCODE_SYNC_ACTIVE_TASK_SESSION = "zcode:sync-active-task-session";
+
 export const PROTOCOL_VERSION = 1;
 
 export interface CanvasStatePayload {

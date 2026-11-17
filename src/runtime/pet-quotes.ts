@@ -45,8 +45,8 @@ export function moodLine(mood: PetMood, random: () => number = Math.random): Pet
 /**
  * The speed readout's tiers: below how many tokens per second, and what she makes of it. Cut on a
  * roughly logarithmic scale from speeds seen in model_usage (late 2026): GLM-5.3 writes around
- * 80–120, Claude Opus 100–200, DeepSeek V4 Flash 160–210, Haiku around 300, "highspeed" models past
- * 1000.
+ * 80–120, Claude Opus 100–200, DeepSeek V4 Flash 160–210, Haiku and GLM-5.3 highspeed 300–450.
+ * (Figures past 1000 seen through relays came from buffered streams, see pet-tps.ts.)
  */
 const SPEEDS: ReadonlyArray<readonly [number, string]> = [[40, "慢吞吞~"], [80, "稳稳哒~"], [150, "唰唰唰！"], [300, "嗖嗖嗖！"], [1000, "光速狐狐！"], [Infinity, "破表啦！"]];
 

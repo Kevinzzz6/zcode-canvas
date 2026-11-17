@@ -684,9 +684,11 @@ test("appearance IPC is restricted to the top-level main window; no window is cr
 test("the desktop pet shares the pet channels without becoming one of the styled main pages", () => {
   const source = readFileSync(fileURLToPath(new URL("../src/runtime/main.ts", import.meta.url)), "utf8");
   // Pushes go to the pet page too; CSS, panel refreshes and the lifecycle count stay with renderers.
-  assert.match(source, /desktopPage \? \[\.\.\.renderers, desktopPage\] : renderers/);
+  assert.match(source, /pages\.push\(\{ id: DESKTOP_PAGE/);
+  assert.match(source, /page === DESKTOP_PAGE \? desktop\?\.contents\(\)/);
   assert.doesNotMatch(source, /renderers\.add\(desktop/);
-  assert.match(source, /!senderIsMainWindow\(event as unknown as IpcMainEvent\) && !desktop\?\.isPage\(event\.sender\)/);
+  // The pet GET answers the desktop pet page and ZCode's main windows, nothing else.
+  assert.match(source, /if \(desktop\?\.isPage\(event\.sender\)\) return pet\.payload\(DESKTOP_PAGE\);\s+if \(!senderIsMainWindow\(event as unknown as IpcMainEvent\)\) throw/);
   // Leaving with the last main page, synchronously, before ZCode's window-all-closed check.
-  assert.match(source, /contents\.once\("destroyed", \(\) => \{ renderers\.delete\(contents\); syncDesktopPet\(\); \}\)/);
+  assert.match(source, /contents\.once\("destroyed", \(\) => \{ renderers\.delete\(contents\); viewing\.delete\(id\); syncDesktopPet\(\); \}\)/);
 });

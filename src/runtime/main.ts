@@ -7,12 +7,12 @@ import { pathToFileURL } from "node:url";
 import { buildCss } from "../shared/css.ts";
 import { canvasHome, loadLook, paths, readConfig, type Material } from "../shared/look.ts";
 import { desktopPetAvailability, resolvePet, type PetAssets, type ResolvedPet } from "../shared/pet.ts";
-import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, CHANNEL_PET, CHANNEL_PET_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION } from "../shared/protocol.ts";
+import { CHANNEL_CSS, CHANNEL_GET, CHANNEL_PANEL_OPEN, CHANNEL_PANEL_CHANGED, CHANNEL_PANEL_LOG, CHANNEL_PET, CHANNEL_PET_GET, encodeState, ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION, ZCODE_SYNC_ACTIVE_TASK_SESSION } from "../shared/protocol.ts";
 import { isMainWindowUrl } from "../shared/window.ts";
 import { registerPanelHandlers } from "./panel.ts";
 import { zcodeLogDir } from "./pet-log.ts";
 import { createDesktopPet } from "./pet-desktop.ts";
-import { createPetService } from "./pet-service.ts";
+import { createPetService, type PetPage } from "./pet-service.ts";
 import { createUsageReader, zcodeUsageDb } from "./pet-usage.ts";
 import { matchesPanelShortcut } from "./shortcut.ts";
 import { watchHome, debounced } from "./watch.ts";
@@ -67,23 +67,38 @@ const petAssets: PetAssets = (() => {
   return { image: url("fox.png"), sounds: { duck: { press: url("Ya1.mp3"), release: url("Ya2.mp3") }, fx1: { press: url("D1.mp3"), release: url("D2.mp3") } } };
 })();
 
+/**
+ * The conversation each main page has open, by webContents id, as ZCode's renderer reports it
+ * (ZCODE_SYNC_ACTIVE_TASK_SESSION): a session id, or null for none. No entry until it says.
+ */
+const viewing = new Map<number, string | null>();
+const DESKTOP_PAGE = "desktop";
+
+/**
+ * Pages that get the pet's pushes. The desktop pet page is not one of the renderers: those are
+ * ZCode's main pages, which also receive CSS and decide when the desktop pet must go. In desktop
+ * mode only it shows the pet, following the conversation of the main window focused last.
+ */
+function petPages(): PetPage[] {
+  const live = [...renderers].filter((contents) => !contents.isDestroyed());
+  const onDesktop = state.pet.desktop && !!desktop?.contents();
+  const pages: PetPage[] = live.map((contents) => ({ id: String(contents.id), shows: !onDesktop, viewing: viewing.get(contents.id) }));
+  if (desktop?.contents()) {
+    const front = live.reduce<WebContents | undefined>((best, contents) => (!best || (lastFocused.get(contents.id) ?? 0) > (lastFocused.get(best.id) ?? 0) ? contents : best), undefined);
+    pages.push({ id: DESKTOP_PAGE, shows: onDesktop, viewing: front ? viewing.get(front.id) : undefined });
+  }
+  return pages;
+}
+
 const pet = createPetService({
   assets: petAssets,
   logDir: zcodeLogDir(),
   usage: createUsageReader(zcodeUsageDb()),
   log,
-  send(payload) {
-    // The desktop pet page gets the same pushes, but is not one of the renderers: those are ZCode's
-    // main pages, which also receive CSS and decide when the desktop pet must go.
-    const desktopPage = desktop?.contents();
-    for (const contents of desktopPage ? [...renderers, desktopPage] : renderers) {
-      if (contents.isDestroyed()) continue;
-      try {
-        contents.send(CHANNEL_PET, payload);
-      } catch (error) {
-        log(`pet update failed: ${String(error)}`);
-      }
-    }
+  pages: petPages,
+  send(page, payload) {
+    const contents = page === DESKTOP_PAGE ? desktop?.contents() : [...renderers].find((each) => String(each.id) === page);
+    if (contents && !contents.isDestroyed()) contents.send(CHANNEL_PET, payload);
   },
 });
 
@@ -113,11 +128,28 @@ function syncDesktopPet() {
  *  bind the combination to a ZCode command (and no panel pops up mid-recording). */
 let shortcutRecordingActive = false;
 
+/**
+ * A window's open conversation, read the way ZCode's own listener reads it (desktopCuaPipIpc.ts): a
+ * trimmed string, empty or anything else meaning none, and an overlong one ignored. Only main pages
+ * count; the pet updates at once instead of at its next poll.
+ */
+function noteViewing(event: IpcMainEvent, payload: unknown) {
+  // Tracked pages only: their entry goes when they do (track).
+  if (!renderers.has(event.sender) || !senderIsMainWindow(event)) return;
+  const sessionId = typeof payload === "string" ? payload.trim() : "";
+  if (sessionId.length > 255) return;
+  const next = sessionId || null;
+  if (viewing.get(event.sender.id) === next) return;
+  viewing.set(event.sender.id, next);
+  pet.refresh();
+}
+
 /** What Canvas reads from ZCode's own IPC on its way to ZCode's listeners, which see it unchanged. */
-function observe(channel: string, args: unknown[]) {
+function observe(channel: string, event: IpcMainEvent | IpcMainInvokeEvent, args: unknown[]) {
   try {
     if (channel === ZCODE_SET_SHORTCUT_RECORDING && typeof args[0] === "boolean") shortcutRecordingActive = args[0];
     else if (channel === ZCODE_SHOW_TASK_NOTIFICATION) pet.prompt(args[0]);
+    else if (channel === ZCODE_SYNC_ACTIVE_TASK_SESSION) noteViewing(event as IpcMainEvent, args[0]);
   } catch (error) {
     log(`observing ${channel} failed: ${String(error)}`);
   }
@@ -131,15 +163,15 @@ function observe(channel: string, args: unknown[]) {
  * its accelerator at exactly that moment.
  */
 function observeZCodeIpc() {
-  const observed = new Set([ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION]);
+  const observed = new Set([ZCODE_SET_SHORTCUT_RECORDING, ZCODE_SHOW_TASK_NOTIFICATION, ZCODE_SYNC_ACTIVE_TASK_SESSION]);
   type Listener = (event: IpcMainEvent, ...args: unknown[]) => void;
   type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown;
   const on = ipcMain.on.bind(ipcMain) as (channel: string, listener: Listener) => typeof ipcMain;
   const handle = ipcMain.handle.bind(ipcMain) as (channel: string, handler: Handler) => void;
   ipcMain.on = ((channel: string, listener: Listener) =>
-    on(channel, observed.has(channel) ? (event, ...args) => { observe(channel, args); return listener(event, ...args); } : listener)) as typeof ipcMain.on;
+    on(channel, observed.has(channel) ? (event, ...args) => { observe(channel, event, args); return listener(event, ...args); } : listener)) as typeof ipcMain.on;
   ipcMain.handle = ((channel: string, handler: Handler) =>
-    handle(channel, observed.has(channel) ? (event, ...args) => { observe(channel, args); return handler(event, ...args); } : handler)) as typeof ipcMain.handle;
+    handle(channel, observed.has(channel) ? (event, ...args) => { observe(channel, event, args); return handler(event, ...args); } : handler)) as typeof ipcMain.handle;
 }
 
 /** Prefer the focused main window; the tray reopens the last active one even with its tab hidden. */
@@ -234,7 +266,11 @@ function installInWindowShortcut() {
         } catch (error) { log(`shortcut failed: ${String(error)}`); }
       });
       const id = window.webContents.id;
-      window.on("focus", () => { lastFocused.set(id, Date.now()); });
+      window.on("focus", () => {
+        lastFocused.set(id, Date.now());
+        // The desktop pet follows the focused window's conversation.
+        if (state.pet.desktop) try { pet.refresh(); } catch (error) { log(`pet refresh failed: ${String(error)}`); }
+      });
       window.on("closed", () => { lastFocused.delete(id); });
     } catch (error) {
       log(`shortcut wiring failed: ${String(error)}`);
@@ -293,8 +329,9 @@ function applyMaterial(contents: WebContents) {
 function track(contents: WebContents) {
   if (renderers.has(contents)) return;
   renderers.add(contents);
+  const id = contents.id;
   // Synchronously: the desktop pet must be gone before ZCode checks whether its last window closed.
-  contents.once("destroyed", () => { renderers.delete(contents); syncDesktopPet(); });
+  contents.once("destroyed", () => { renderers.delete(contents); viewing.delete(id); syncDesktopPet(); });
   // Not inside the page's synchronous GET.
   setImmediate(syncDesktopPet);
 }
@@ -359,8 +396,9 @@ try {
   } catch (error) { log(`overlay logging unavailable: ${String(error)}`); }
   try {
     ipcMain.handle(CHANNEL_PET_GET, (event) => {
-      if (!senderIsMainWindow(event as unknown as IpcMainEvent) && !desktop?.isPage(event.sender)) throw new Error("refused: sender is neither ZCode's main window nor the desktop pet");
-      return pet.payload();
+      if (desktop?.isPage(event.sender)) return pet.payload(DESKTOP_PAGE);
+      if (!senderIsMainWindow(event as unknown as IpcMainEvent)) throw new Error("refused: sender is neither ZCode's main window nor the desktop pet");
+      return pet.payload(String(event.sender.id));
     });
     pet.configure(state.pet);
   } catch (error) { log(`pet unavailable: ${String(error)}`); }
