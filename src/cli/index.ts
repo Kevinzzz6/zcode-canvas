@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { themeSchemaProblems } from "./schema.ts";
-import { importWallpaper } from "./wallpaper.ts";
+import { importWallpaper, listWallpapers, removeWallpapers } from "./wallpaper.ts";
 import { buildCss } from "../shared/css.ts";
 import { isPaletteColor, PALETTE_VARIANTS, type PaletteVariant } from "../shared/palette.ts";
 import { parsePetPatch, PET_SCALE, PET_SOUNDS } from "../shared/pet.ts";
@@ -57,6 +57,9 @@ function helpText(): string {
   new <id>               以当前设置新建一个主题（会复制用到的图片）
   wallpaper import <目录> [--preview]
                          导入本地 Wallpaper Engine 静态图片（预览必须显式选择）
+  wallpaper list         列出壁纸库里的壁纸（* 标记当前使用）
+  wallpaper remove <文件名>…
+                         从壁纸库删除壁纸；正在使用时同时取消选用，重新导入可恢复
   css                    打印当前生成的 CSS
   open                   打开 Canvas 外观中心（ZCode 运行中）或配置目录
   pet <on|off>           开关桌宠：窗口角落的狐娘，随 AI 思考、干活、等你回应、完成、出错变化
@@ -308,6 +311,28 @@ function importWallpaperCommand(projectDir: string | undefined, preview: boolean
   console.log("  已更新 wallpaper.image；其它配置保持不变。预览图不会被当作原图。 ");
 }
 
+function listWallpapersCommand() {
+  const all = listWallpapers(home);
+  if (all.length === 0) {
+    console.log("壁纸库是空的。用 `zcode-canvas wallpaper import <项目目录>` 或外观中心添加。");
+    return;
+  }
+  for (const wallpaper of all)
+    console.log(`  ${wallpaper.inUse ? "*" : " "} ${wallpaper.fileName}  (${wallpaper.displayName}, ${(wallpaper.bytes / 1024 / 1024).toFixed(1)} MB)${wallpaper.inUse ? "  ← 当前使用" : ""}`);
+}
+
+function removeWallpapersCommand(fileNames: string[]) {
+  if (fileNames.length === 0) throw new Error("用法: zcode-canvas wallpaper remove <文件名>…（先用 `zcode-canvas wallpaper list` 查看文件名）");
+  const result = removeWallpapers(home, fileNames);
+  for (const fileName of result.removed) console.log(`✓ 已删除 ${fileName}`);
+  for (const fileName of result.missing) console.error(`× 壁纸库里没有 ${fileName}`);
+  if (result.clearedUse) {
+    console.log("  它正在被使用，已同时取消选用；壁纸的其他设置保留。重新导入同一张图片会恢复原文件名。");
+    restoreOwnership(home);
+  }
+  if (result.missing.length > 0) process.exitCode = 1;
+}
+
 function openCanvasHome() {
   mkdirSync(home, { recursive: true });
   let running = false;
@@ -366,8 +391,10 @@ async function main() {
     case "new":
       return newTheme(positional[0]);
     case "wallpaper":
-      if (positional[0] !== "import") throw new Error("用法: zcode-canvas wallpaper import <项目目录> [--preview]");
-      return importWallpaperCommand(positional[1], flags.preview === true);
+      if (positional[0] === "import") return importWallpaperCommand(positional[1], flags.preview === true);
+      if (positional[0] === "list") return listWallpapersCommand();
+      if (positional[0] === "remove") return removeWallpapersCommand(positional.slice(1));
+      throw new Error("用法: zcode-canvas wallpaper import <项目目录> [--preview] | list | remove <文件名>…");
     case "css":
       return printCss();
     case "open":

@@ -2,7 +2,7 @@
 // Wallpaper Engine import both write into it through here, so naming, path safety and the
 // new-import overlay policy cannot drift apart.
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { basename, dirname, extname, resolve, sep } from "node:path";
 import type { WallpaperLayer } from "./look.ts";
 
@@ -76,4 +76,17 @@ export function storeWallpaper(source: string, home: string, prefix: readonly st
 export function withUnobscuredOverlay(wallpaper: WallpaperLayer): WallpaperLayer {
   if (wallpaper.dim !== undefined || wallpaper.dark?.dim !== undefined || wallpaper.light?.dim !== undefined) return wallpaper;
   return { ...wallpaper, dim: 0 };
+}
+
+/** Delete a stored wallpaper by its file name (as `wallpaper list` prints it). The name goes
+ *  through the same white-list and symlink checks as writes, so removal cannot reach outside the
+ *  store. Returns false when nothing is stored under that name. The caller clears any config
+ *  reference to the file, so the running look never points at a deleted file; re-importing the
+ *  same image later restores the same stored name, because the content tag is derived from
+ *  the bytes. */
+export function removeStoredWallpaper(home: string, fileName: string): boolean {
+  const path = storedWallpaperPath(home, fileName);
+  if (!existsSync(path)) return false;
+  rmSync(path);
+  return true;
 }
