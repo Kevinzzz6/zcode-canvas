@@ -27,9 +27,12 @@ import {
   applyPatch,
   deployRuntime,
   hasPendingSwap,
+  insideZCodeTree,
   isZCodeRunning,
   locateZCode,
   packageVersion,
+  pendingSwapHelperAlive,
+  readPendingSwap,
   readState,
   removePatch,
   restoreOwnership,
@@ -188,6 +191,20 @@ function describeOutcome(outcome: ReplaceOutcome, action: string) {
     );
 }
 
+/** Windows: the helper spawned for a pending swap inherits this terminal's job object, and ZCode
+ *  kills its whole job on exit — run from ZCode's own terminal (or by an agent inside it), the
+ *  helper dies with it and the staged patch never lands. Say so instead of leaving a
+ *  success-looking "已准备好", and fail the command: scripts and agents read that exit code. */
+function warnPendingInsideZCode() {
+  process.exitCode = 1;
+  console.error(
+    "! 本命令运行在 ZCode 内置终端里：替换助手会随 ZCode 一起退出，上面的补丁不会自动换上。\n" +
+      "  请任选其一：\n" +
+      "  - 在 ZCode 之外的终端重新运行 zcode-canvas apply（PowerShell 报执行策略错误时改用 zcode-canvas.cmd）\n" +
+      "  - 先从托盘彻底退出 ZCode，再运行 zcode-canvas apply",
+  );
+}
+
 function permissionTip(): string {
   if (process.platform === "win32") return "  ZCode 装在受保护目录（如 Program Files）时，请用管理员身份运行终端。";
   if (process.platform === "linux")
@@ -219,6 +236,14 @@ function status(explicit?: string) {
   console.log(`补丁             ${state.patched ? `已安装 (Canvas ${state.restore?.canvasVersion})` : "未安装"}${hasPendingSwap(install) ? "（有待 ZCode 退出后替换的文件）" : ""}`);
   console.log(`运行时           ${runtimeVersion ? `${runtimeVersion} @ ${paths.runtime(home)}` : "未安装"}`);
   console.log(`ZCode 运行中     ${isZCodeRunning(install) ? "是" : "否"}`);
+  if (process.platform === "win32" && hasPendingSwap(install)) {
+    const pending = readPendingSwap(install);
+    if (pending && !pendingSwapHelperAlive(pending.id))
+      console.log(
+        "! 待替换文件在，但替换它的后台助手没有在运行：退出 ZCode 后不会自动替换。\n" +
+          "  在 ZCode 之外的终端重新运行 zcode-canvas apply（PowerShell 用 zcode-canvas.cmd），或先彻底退出 ZCode 再 apply。",
+      );
+  }
   console.log(`Canvas           ${config.enabled === false ? "已关闭" : "开启"}`);
   console.log(`当前主题         ${config.theme ?? "（无）"}`);
   const active = config.theme ? listThemes(home, [packagedThemes]).find((t) => t.id === config.theme) : undefined;
@@ -235,7 +260,10 @@ function apply(explicit?: string) {
   console.log(`  ZCode ${state.zcodeVersion} @ ${install.dir}`);
   const outcome = applyPatch(install, packageVersion(packageRoot), cliPath);
   if (outcome === "unchanged") console.log("✓ 补丁已是最新。运行时的更新在下次启动 ZCode 时生效。");
-  else describeOutcome(outcome, "给 ZCode 打补丁");
+  else {
+    describeOutcome(outcome, "给 ZCode 打补丁");
+    if (outcome === "pending" && process.platform === "win32" && insideZCodeTree(process.pid)) warnPendingInsideZCode();
+  }
 }
 
 function restore(explicit: string | undefined, purge: boolean) {
