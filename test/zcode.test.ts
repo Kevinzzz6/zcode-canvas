@@ -9,7 +9,10 @@ import {
   deployRuntime,
   exeName,
   installationAt,
+  insideZCodeTree,
   macZCodeRunning,
+  pendingSwapHelperAlive,
+  readPendingSwap,
   removePatch,
   replaceDirectory,
   ResignError,
@@ -230,4 +233,46 @@ test("macZCodeRunning survives a process exiting mid-check and matches the canon
   };
   assert.equal(macZCodeRunning(exe, run), true);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("insideZCodeTree walks the parent chain looking for a ZCode main process", () => {
+  const commands: string[] = [];
+  const run = (command: string, args: string[]) => {
+    commands.push(args.join(" "));
+    return "zcode";
+  };
+  assert.equal(insideZCodeTree(4242, run), true);
+  assert.match(commands[0]!, /ProcessId=4242/);
+  assert.match(commands[0]!, /ZCode\.exe/);
+});
+
+test("insideZCodeTree reports outside, and false when the probe cannot run", () => {
+  assert.equal(insideZCodeTree(1, () => "outside"), false);
+  assert.equal(
+    insideZCodeTree(1, () => {
+      throw new Error("powershell missing");
+    }),
+    false,
+  );
+});
+
+test("readPendingSwap returns the parked record only", () => {
+  const install = fakeInstall();
+  assert.equal(readPendingSwap(install), null);
+  parkPending(install, "job-3");
+  const stat = statSync(install.asar);
+  assert.deepEqual(readPendingSwap(install), { id: "job-3", asarSize: stat.size, asarMtimeMs: stat.mtimeMs });
+});
+
+test("pendingSwapHelperAlive matches the record id and never the probe itself", () => {
+  const commands: string[] = [];
+  const run = (command: string, args: string[]) => {
+    commands.push(args.join(" "));
+    return "2";
+  };
+  assert.equal(pendingSwapHelperAlive("21500-1795355564573", run), true);
+  assert.equal(pendingSwapHelperAlive("21500-1795355564573", () => "0"), false);
+  assert.match(commands[0]!, /__swap/);
+  assert.match(commands[0]!, /21500-1795355564573/);
+  assert.match(commands[0]!, /\$PID/); // the probe's own command line names both markers
 });

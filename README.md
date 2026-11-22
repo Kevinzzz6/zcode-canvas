@@ -101,7 +101,9 @@ npm install && npm run build && npm link
 帮我安装 ZCode Canvas（npm 包 zcode-canvas）。
 先 npm install -g zcode-canvas，再 zcode-canvas apply，
 装好后用 zcode-canvas status 确认补丁已安装。
-需要管理员权限、sudo 或退出 ZCode 的步骤请交给我，不要自己结束 ZCode 进程。
+需要管理员权限、sudo、退出 ZCode、或在 ZCode 之外的终端运行命令的步骤请交给我，
+不要自己结束 ZCode 进程。Windows 上 apply 若提示运行在 ZCode 内置终端里会失败，
+请让我在 ZCode 外的终端（如 PowerShell，报执行策略错误时用 zcode-canvas.cmd）重跑 apply。
 最后切换到 endfield 主题。
 ```
 
@@ -402,7 +404,8 @@ ZCode 装在非默认位置时，可以用 `--zcode <目录>` 指定。
 <br>
 
 - ZCode 装在 Program Files 这类受保护目录时，需要用管理员身份运行终端。
-- ZCode 正在运行时 `app.asar` 会被占用。Canvas 会先准备好补丁，再启动一个一次性小进程，等 ZCode 退出后替换，然后立即结束。所以直接在 ZCode 自带的终端里运行也没问题，从托盘彻底退出再打开就能看到效果。
+- ZCode 正在运行时 `app.asar` 会被占用。Canvas 会先准备好补丁，再启动一个一次性小进程，等 ZCode 退出后替换，然后立即结束。从托盘彻底退出再打开就能看到效果。
+- **例外：不要在 ZCode 自带的终端里运行 `apply`。** 那个一次性小进程随 ZCode 一起退出时会被连带结束（Windows 的 Job Object 机制），补丁永远换不上——`apply` 检测到这种情况会直接报错提示。请在 ZCode 之外的终端运行（PowerShell 报执行策略错误时改用 `zcode-canvas.cmd apply`），或先从托盘彻底退出 ZCode 再 `apply`。
 
 </details>
 

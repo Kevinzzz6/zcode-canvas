@@ -123,6 +123,26 @@ function windowsZCodeRunning(exe: string): boolean {
   }
 }
 
+/** True when the process `pid` runs inside some ZCode's process tree: its embedded terminal, or a
+ *  shell owned by an agent inside ZCode. Only Windows needs to know — a detached child survives
+ *  its parent everywhere else — but the check is pure given `run`, so it stays testable anywhere.
+ *  Any ZCode counts, not just the install being patched: the pending-swap helper dies with the
+ *  ZCode whose job object contains it, so an agent's ZCode patching a sandbox copy loses its
+ *  helper the same way. The seen-set guards against PID reuse closing the chain into a loop; a
+ *  probe that cannot run reports false, so a broken check never blocks apply. */
+export function insideZCodeTree(pid: number, run: (command: string, args: string[]) => string = runCapture): boolean {
+  const command =
+    `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; $seen = @{}; $r = 'outside'; ` +
+    `while ($p -and -not $seen.ContainsKey($p.ProcessId)) { $seen[$p.ProcessId] = 1; ` +
+    `if ($p.Name -ieq 'ZCode.exe') { $r = 'zcode'; break }; ` +
+    `$p = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)" }; $r`;
+  try {
+    return run("powershell", ["-NoProfile", "-Command", command]).trim() === "zcode";
+  } catch {
+    return false;
+  }
+}
+
 /** Matches /proc/<pid>/exe against the install's executable; falls back to pgrep when /proc is unavailable. */
 function linuxZCodeRunning(exe: string): boolean {
   let target = exe;
@@ -297,7 +317,7 @@ export function packageVersion(packageRoot: string): string {
 
 export type ReplaceOutcome = "replaced" | "pending";
 
-interface PendingRecord {
+export interface PendingRecord {
   id: string;
   asarSize: number;
   asarMtimeMs: number;
@@ -407,6 +427,31 @@ export async function runPendingSwap(installDir: string, id: string) {
 
 export function hasPendingSwap(install: Installation): boolean {
   return existsSync(pendingPath(install));
+}
+
+/** The staged swap's record, so callers can report on it and match the helper's command line. */
+export function readPendingSwap(install: Installation): PendingRecord | null {
+  try {
+    return JSON.parse(readFileSync(`${pendingPath(install)}.json`, "utf8")) as PendingRecord;
+  } catch {
+    return null;
+  }
+}
+
+/** True when a live process is running the `__swap` helper for this pending record. Windows only,
+ *  matching where a pending swap can exist. The record's id is unique per staging, so matching it
+ *  identifies the helper without assuming how node was invoked; `ProcessId -ne $PID` keeps the
+ *  probe from matching its own command line, which mentions both `__swap` and the id it seeks.
+ *  A probe that cannot run reports false, same as windowsZCodeRunning. */
+export function pendingSwapHelperAlive(id: string, run: (command: string, args: string[]) => string = runCapture): boolean {
+  const command =
+    `(Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and ` +
+    `$_.CommandLine -like '*__swap*' -and $_.CommandLine -like '*${id.replace(/'/g, "''")}*' } | Measure-Object).Count`;
+  try {
+    return Number(run("powershell", ["-NoProfile", "-Command", command])) > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function cancelPendingSwap(install: Installation) {
